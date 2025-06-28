@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, createUserContent, createPartFromUri } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 type GenerateContentOptions = {
   model?: string;
@@ -117,11 +117,19 @@ export class GoogleGenAIService {
 
       // Create content parts for files and text
       const parts = [
-        ...uploadedFiles.map(file => createPartFromUri(file.uri, file.mimeType)),
-        prompt
+        ...uploadedFiles.map(file => ({ 
+          fileData: { 
+            fileUri: file.uri, 
+            mimeType: file.mimeType 
+          } 
+        })),
+        { text: prompt }
       ];
 
-      const contents = createUserContent(parts);
+      const contents = {
+        role: 'user' as const,
+        parts: parts
+      };
       
       const result = await genModel.generateContent({
         contents: [contents]
