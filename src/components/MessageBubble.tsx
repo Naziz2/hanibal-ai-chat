@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Copy, Check, User, Bot, AlertCircle, Download, Code } from 'lucide-react';
+import { Copy, Check, User, Bot, AlertCircle, Download, Code, Brain } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -121,17 +121,32 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onViewCod
   }, [message.content]);
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-6`}>
       <div className={`flex items-start max-w-[85%] md:max-w-[75%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'ml-3 bg-blue-600' : 'mr-3 bg-gray-700'}`}>
-          {isUser ? <User size={16} /> : <Bot size={16} />}
+        <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+          isUser 
+            ? 'ml-3 bg-gradient-to-br from-blue-600 to-purple-600' 
+            : 'mr-3 bg-gradient-to-br from-purple-600 to-blue-600'
+        }`}>
+          {isUser ? (
+            <User size={18} className="text-white" />
+          ) : (
+            <Brain size={18} className="text-white" />
+          )}
         </div>
-        <div className={`relative group px-4 py-3 ${isUser ? 'bg-blue-600 rounded-l-2xl rounded-tr-lg' : 'bg-gray-700 rounded-r-2xl rounded-tl-lg'}`}>
+        <div className={`relative group px-5 py-4 ${
+          isUser 
+            ? 'bg-gradient-to-br from-blue-600/90 to-purple-600/90 rounded-l-2xl rounded-tr-lg backdrop-blur-sm' 
+            : 'bg-gray-800/90 rounded-r-2xl rounded-tl-lg backdrop-blur-sm border border-gray-700/50'
+        }`}>
           {message.isLoading ? (
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-              <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" style={{ animationDelay: '200ms' }} />
-              <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" style={{ animationDelay: '400ms' }} />
+            <div className="flex items-center space-x-3">
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" />
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '200ms' }} />
+                <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '400ms' }} />
+              </div>
+              <span className="text-gray-300 text-sm">Hanibal is thinking...</span>
             </div>
           ) : message.isError ? (
             <div className="flex items-center space-x-2 text-red-300">
@@ -147,10 +162,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onViewCod
                     const needsScroll = element.hasScroll;
                     
                     return (
-                      <div key={index} className={`my-3 bg-gray-900 rounded-lg border border-gray-700/50 overflow-hidden ${needsScroll ? 'max-h-[60vh]' : ''}`}>
-                        <div className="flex justify-between items-center px-3 py-2 bg-gray-800/70 border-b border-gray-700/50">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono font-medium text-teal-400">{element.language || 'code'}</span>
+                      <div key={index} className={`my-4 bg-gray-900/80 rounded-xl border border-gray-700/50 overflow-hidden backdrop-blur-sm ${needsScroll ? 'max-h-[60vh]' : ''}`}>
+                        <div className="flex justify-between items-center px-4 py-3 bg-gray-800/70 border-b border-gray-700/50">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-mono font-medium text-cyan-400">{element.language || 'code'}</span>
                             <span className="text-xs text-gray-500">
                               {element.content.split('\n').length} {element.content.split('\n').length === 1 ? 'line' : 'lines'}
                             </span>
@@ -159,14 +174,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onViewCod
                             <button 
                               onClick={() => handleDownloadCode(element.content, element.language || 'txt')}
                               title="Download file" 
-                              className="p-1.5 rounded hover:bg-gray-700/50 text-gray-400 hover:text-white transition-colors"
+                              className="p-2 rounded-lg hover:bg-gray-700/50 text-gray-400 hover:text-white transition-colors"
                             >
                               <Download size={14} />
                             </button>
                             <button 
                               onClick={() => handleCodeCopy(element.content, codeId)}
                               title="Copy code" 
-                              className="p-1.5 rounded hover:bg-gray-700/50 text-gray-400 hover:text-white transition-colors"
+                              className="p-2 rounded-lg hover:bg-gray-700/50 text-gray-400 hover:text-white transition-colors"
                             >
                               {copiedStates[codeId] ? (
                                 <Check size={14} className="text-green-500" />
@@ -178,14 +193,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onViewCod
                               <button
                                 onClick={() => onViewCode(runnableCodeBlocks)}
                                 title="Open in code runner"
-                                className="p-1.5 rounded hover:bg-teal-900/30 text-teal-400 hover:text-teal-300 transition-colors"
+                                className="p-2 rounded-lg hover:bg-cyan-900/30 text-cyan-400 hover:text-cyan-300 transition-colors"
                               >
                                 <Code size={14} />
                               </button>
                             )}
                           </div>
                         </div>
-                        <div className={`relative ${needsScroll ? 'max-h-[calc(60vh-40px)]' : ''} overflow-auto`}>
+                        <div className={`relative ${needsScroll ? 'max-h-[calc(60vh-60px)]' : ''} overflow-auto`}>
                           <div className={`${needsScroll ? 'absolute inset-0 overflow-auto' : ''}`}>
                             <SyntaxHighlighter
                               style={vscDarkPlus}
@@ -195,10 +210,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onViewCod
                               wrapLongLines={!needsScroll ? 'true' : undefined}
                               customStyle={{
                                 margin: 0,
-                                padding: '1rem',
+                                padding: '1.5rem',
                                 background: 'transparent',
                                 fontSize: '0.875rem',
-                                lineHeight: '1.5',
+                                lineHeight: '1.6',
                                 fontFamily: '"Fira Code", monospace',
                                 minWidth: 'fit-content',
                                 minHeight: '100%',
@@ -230,7 +245,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onViewCod
                       components={{
                         code({ node, inline, className, children, ...props }) {
                           if (inline) {
-                            return <code className="bg-gray-800/50 text-amber-300 font-semibold px-1 py-0.5 rounded-md">{children}</code>;
+                            return <code className="bg-gray-800/60 text-cyan-300 font-semibold px-2 py-1 rounded-md">{children}</code>;
                           }
                           return <code className={className} {...props}>{children}</code>;
                         }
@@ -242,21 +257,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onViewCod
                 })}
               </div>
               {message.images && message.images.length > 0 && (
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="mt-4 grid grid-cols-2 gap-3">
                   {message.images.map((img, index) => (
-                    <img key={index} src={img} alt={`Generated ${index + 1}`} className="max-w-full h-auto rounded-lg shadow-md" />
+                    <img key={index} src={img} alt={`Generated ${index + 1}`} className="max-w-full h-auto rounded-xl shadow-lg border border-gray-700/50" />
                   ))}
                 </div>
               )}
               {runnableCodeBlocks.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-white/10">
+                <div className="mt-4 pt-4 border-t border-white/10">
                   <button
                     onClick={() => onViewCode(runnableCodeBlocks)}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs rounded-md bg-gray-800/60 hover:bg-gray-800 transition-colors"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm rounded-lg bg-gray-800/60 hover:bg-gray-800 transition-colors border border-gray-700/50"
                     disabled={runnableCodeBlocks.length === 0}
                   >
-                    <Code size={14} />
-                    <span>View Code ({runnableCodeBlocks.length} {runnableCodeBlocks.length !== 1 ? 'files' : 'file'})</span>
+                    <Code size={16} />
+                    <span>Run Code ({runnableCodeBlocks.length} {runnableCodeBlocks.length !== 1 ? 'files' : 'file'})</span>
                   </button>
                 </div>
               )}
