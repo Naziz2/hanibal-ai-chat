@@ -1,0 +1,211 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.workspace-container {
+  transition: all 0.3s ease;
+}
+
+.workspace-enter {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.workspace-enter-active {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.workspace-exit {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.workspace-exit-active {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+/* Style for the workspace toggle button */
+.workspace-toggle {
+  transition: all 0.2s ease;
+}
+
+.workspace-toggle:hover {
+  transform: scale(1.1);
+}
+
+/* Custom scrollbar for the main container */
+.main-container {
+  --sb-track-color: #1e293b;
+  --sb-thumb-color: #0f766e;
+  --sb-size: 8px;
+  scrollbar-color: var(--sb-thumb-color) var(--sb-track-color);
+}
+
+.main-container::-webkit-scrollbar {
+  width: var(--sb-size);
+  height: var(--sb-size);
+}
+
+.main-container::-webkit-scrollbar-track {
+  background: var(--sb-track-color);
+  border-radius: 17px;
+}
+
+.main-container::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb-color);
+  border-radius: 17px;
+  border: 2px solid var(--sb-track-color);
+}
+
+/* Code block styling - ALWAYS show with scroll for long code */
+pre {
+  position: relative;
+  margin: 0.5em 0;
+  padding: 1em;
+  border-radius: 0.375rem;
+  background: #1e1e1e;
+  overflow: auto !important;
+  max-height: 60vh;
+  scrollbar-width: thin;
+  scrollbar-color: #0f766e #2d3748;
+}
+
+/* Style scrollbars for code blocks */
+pre::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: #2d3748;
+  border-radius: 4px;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background-color: #0f766e;
+  border-radius: 4px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+  background-color: #14b8a6;
+}
+
+/* Code runner container */
+.code-runner-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 80vh;
+  background: #1a202c;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+.code-runner-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.code-runner-editor {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem;
+  background: #1e1e1e;
+}
+
+.code-runner-output {
+  max-height: 40%;
+  min-height: 100px;
+  padding: 1rem;
+  background: #1a202c;
+  border-top: 1px solid #2d3748;
+  overflow: auto;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+/* Tabs */
+.code-tabs {
+  display: flex;
+  border-bottom: 1px solid #2d3748;
+  background: #1a202c;
+  padding: 0 0.5rem;
+}
+
+.code-tab {
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  color: #a0aec0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.code-tab.active {
+  color: #fff;
+  border-bottom-color: #0f766e;
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.code-tab:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Inline code */
+:not(pre) > code {
+  padding: 0.2em 0.4em;
+  border-radius: 0.25em;
+  background: #2d3748;
+  color: #e2e8f0;
+  font-size: 0.9em;
+}
+
+/* Body styles */
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #111827;
+  color: #E5E7EB;
+}
+
+body code {
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', 'Monaco', 'Andale Mono', monospace;
+  font-feature-settings: 'calt' 1;
+  text-rendering: optimizeLegibility;
+}
+
+.prose {
+  color: #E5E7EB;
+}
+
+/* For inline code */
+.prose code:not(pre *) {
+  background-color: #374151;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-weight: 500;
+}
+
+/* For code blocks */
+.prose pre {
+  background-color: #1F2937 !important;
+  border-radius: 0.5rem;
+  padding: 1rem !important;
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+}
