@@ -283,75 +283,11 @@ The files are now ready to be used in our conversation. You can ask me questions
       finalFiles = await analyzeFilesInConversation(uploadedFiles);
     }
     
-    // Check if we have files with Google AI uploads for direct file handling
-    const filesWithUploads = finalFiles.filter(f => f.uploadedFile);
-    
-    if (filesWithUploads.length > 0 && provider.id === 'google') {
-      // Use Google AI's file upload API for better handling
-      const userMessage: Message = {
-        id: `user-${now}`,
-        role: 'user',
-        content: `${messageContent}\n\n--- Files Attached ---\n${finalFiles.map(f => f.name).join(', ')}`,
-        timestamp: new Date(now),
-      };
-
-      const loadingMessageId = `loading-${Date.now()}`;
-      const loadingMessage: Message = {
-        id: loadingMessageId,
-        role: 'assistant',
-        content: '',
-        isLoading: true,
-        timestamp: new Date(),
-        model: model.id,
-      };
-      
-      setMessages(prev => [...prev, userMessage, loadingMessage]);
-      setIsLoading(true);
-      setInput('');
-      setUploadedFiles([]);
-
-      try {
-        const responseText = await googleAIService.generateContentWithFiles(
-          messageContent,
-          filesWithUploads.map(f => f.uploadedFile!),
-          model.id
-        );
-
-        setMessages(prev => 
-          prev.map(msg => 
-            msg.id === loadingMessageId 
-              ? { 
-                  ...msg, 
-                  content: responseText, 
-                  isLoading: false 
-                } 
-              : msg
-          )
-        );
-      } catch (error: any) {
-        console.error('Error sending message with files:', error);
-        const errorMessage: Message = {
-          id: loadingMessageId,
-          role: 'assistant',
-          content: `❌ Error: ${error.message}`,
-          isError: true,
-          timestamp: new Date(),
-          model: model.id,
-        };
-        setMessages(prev => [...prev.filter(msg => msg.id !== loadingMessageId), errorMessage]);
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-    
-    // For files without analysis or non-Google providers, include file information in message
-    messageContent += formatFilesForMessage(finalFiles);
-    
+    // Create user message with just the text input (files will be handled separately)
     const userMessage: Message = {
       id: `user-${now}`,
       role: 'user',
-      content: messageContent,
+      content: messageContent + (finalFiles.length > 0 ? `\n\n📎 ${finalFiles.length} file${finalFiles.length > 1 ? 's' : ''} attached` : ''),
       timestamp: new Date(now),
     };
 
@@ -373,24 +309,39 @@ The files are now ready to be used in our conversation. You can ask me questions
     try {
       let responseText = '';
       
-      const recentMessages = messages.slice(-MAX_CONVERSATION_HISTORY_MESSAGES);
-      const conversationHistory = recentMessages.map(msg => ({ 
-        role: msg.role, 
-        content: msg.content || '' 
-      }));
+      // Check if we have files with Google AI uploads for direct file handling
+      const filesWithUploads = finalFiles.filter(f => f.uploadedFile);
       
-      const currentMessages = [...conversationHistory, { role: 'user' as const, content: messageContent }];
-      
-      if (provider.id === 'openrouter') {
-        responseText = await openRouterService.generateText(
-          model.id, 
-          currentMessages
-        );
-      } else if (provider.id === 'google') {
-        responseText = await googleAIService.generateText(
-          currentMessages, 
+      if (filesWithUploads.length > 0 && provider.id === 'google') {
+        // Use Google AI's file upload API for better handling
+        responseText = await googleAIService.generateContentWithFiles(
+          messageContent,
+          filesWithUploads.map(f => f.uploadedFile!),
           model.id
         );
+      } else {
+        // For files without analysis or non-Google providers, include file information in message
+        const fullMessageContent = messageContent + formatFilesForMessage(finalFiles);
+        
+        const recentMessages = messages.slice(-MAX_CONVERSATION_HISTORY_MESSAGES);
+        const conversationHistory = recentMessages.map(msg => ({ 
+          role: msg.role, 
+          content: msg.content || '' 
+        }));
+        
+        const currentMessages = [...conversationHistory, { role: 'user' as const, content: fullMessageContent }];
+        
+        if (provider.id === 'openrouter') {
+          responseText = await openRouterService.generateText(
+            model.id, 
+            currentMessages
+          );
+        } else if (provider.id === 'google') {
+          responseText = await googleAIService.generateText(
+            currentMessages, 
+            model.id
+          );
+        }
       }
 
       setMessages(prev => 
@@ -660,8 +611,8 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
                     </div>
                   )}
                   <span className="text-gray-300 truncate max-w-32">{file.name}</span>
-                  {file.analysis && (
-                    <div className="w-2 h-2 bg-green-400 rounded-full" title="Will be analyzed" />
+                  {!file.analysis && (
+                    <div className="w-2 h-2 bg-purple-400 rounded-full" title="Will be analyzed" />
                   )}
                   <button
                     onClick={() => setUploadedFiles(files => files.filter(f => f.id !== file.id))}
