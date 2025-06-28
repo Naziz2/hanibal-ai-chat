@@ -121,44 +121,73 @@ export class GoogleGenAIService {
   }
 
   /**
-   * Generate content with uploaded files
+   * Generate content with uploaded files and conversation history
    * @param prompt The text prompt
    * @param uploadedFiles Array of uploaded file info
    * @param model Optional model override
+   * @param conversationHistory Optional conversation history for chain conversation
    * @returns Generated text
    */
   async generateContentWithFiles(
     prompt: string, 
     uploadedFiles: { uri: string; mimeType: string; name: string }[], 
-    model?: string
+    model?: string,
+    conversationHistory?: { role: 'user' | 'assistant'; content: string }[]
   ): Promise<string> {
     try {
       const genModel = this.ai.getGenerativeModel({
         model: model || this.defaultModel,
       });
 
-      // Create content parts for files and text
-      const parts = [
-        ...uploadedFiles.map(file => ({ 
-          fileData: { 
-            fileUri: file.uri, 
-            mimeType: file.mimeType 
-          } 
-        })),
-        { text: prompt }
-      ];
+      // If we have conversation history, use chat mode for better context
+      if (conversationHistory && conversationHistory.length > 0) {
+        const history = conversationHistory.map(msg => ({
+          role: msg.role === 'assistant' ? 'model' as const : 'user' as const,
+          parts: [{ text: msg.content }]
+        }));
 
-      const contents = {
-        role: 'user' as const,
-        parts: parts
-      };
-      
-      const result = await genModel.generateContent({
-        contents: [contents]
-      });
-      
-      const response = await result.response;
-      return response.text();
+        const chat = genModel.startChat({
+          history: history,
+        });
+
+        // Create content parts for files and text
+        const parts = [
+          ...uploadedFiles.map(file => ({ 
+            fileData: { 
+              fileUri: file.uri, 
+              mimeType: file.mimeType 
+            } 
+          })),
+          { text: prompt }
+        ];
+
+        const result = await chat.sendMessage(parts);
+        const response = await result.response;
+        return response.text();
+      } else {
+        // No conversation history, use direct generation
+        const parts = [
+          ...uploadedFiles.map(file => ({ 
+            fileData: { 
+              fileUri: file.uri, 
+              mimeType: file.mimeType 
+            } 
+          })),
+          { text: prompt }
+        ];
+
+        const contents = {
+          role: 'user' as const,
+          parts: parts
+        };
+        
+        const result = await genModel.generateContent({
+          contents: [contents]
+        });
+        
+        const response = await result.response;
+        return response.text();
+      }
     } catch (error) {
       console.error('Error generating content with files:', error);
       if (error instanceof Error && (error.message.includes('API_KEY_INVALID') || error.message.includes('API key not valid'))) {
