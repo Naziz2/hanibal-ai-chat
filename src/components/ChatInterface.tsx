@@ -315,18 +315,21 @@ The files are now ready to be used in our conversation. You can ask me questions
     setInput('');
     setUploadedFiles([]);
 
-    // Step 1: Analyze files if needed (this will add its own message)
-    let finalFiles = currentFiles;
-    if (currentFiles.length > 0 && fileAnalysisService.current) {
-      const needsAnalysis = currentFiles.some(file => !file.isAnalyzed && !file.analysis);
-      if (needsAnalysis) {
-        finalFiles = await analyzeFilesInConversation(currentFiles);
-        // Wait a moment for the analysis message to be displayed
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+    // Check if files need analysis
+    const needsAnalysis = currentFiles.length > 0 && 
+                         fileAnalysisService.current && 
+                         currentFiles.some(file => !file.isAnalyzed && !file.analysis);
+
+    if (needsAnalysis) {
+      // ONLY do file analysis - NO AI response
+      console.log('Files need analysis - analyzing only, no AI response');
+      await analyzeFilesInConversation(currentFiles);
+      return; // Exit here - don't generate AI response
     }
+
+    // If no files or files are already analyzed, generate AI response
+    console.log('No analysis needed - generating AI response');
     
-    // Step 2: Generate AI response (only after analysis is complete)
     const loadingMessageId = `loading-${Date.now()}`;
     const loadingMessage: Message = {
       id: loadingMessageId,
@@ -344,7 +347,7 @@ The files are now ready to be used in our conversation. You can ask me questions
       let responseText = '';
       
       // Check if we have files with Google AI uploads for direct file handling
-      const filesWithUploads = finalFiles.filter(f => f.uploadedFile);
+      const filesWithUploads = currentFiles.filter(f => f.uploadedFile);
       
       if (filesWithUploads.length > 0 && provider.id === 'google') {
         // Use Google AI's file upload API for better handling
@@ -355,7 +358,7 @@ The files are now ready to be used in our conversation. You can ask me questions
         );
       } else {
         // For files without analysis or non-Google providers, include file information in message
-        const fullMessageContent = currentInput + formatFilesForMessage(finalFiles);
+        const fullMessageContent = currentInput + formatFilesForMessage(currentFiles);
         
         const recentMessages = messages.slice(-MAX_CONVERSATION_HISTORY_MESSAGES);
         const conversationHistory = recentMessages.map(msg => ({ 
