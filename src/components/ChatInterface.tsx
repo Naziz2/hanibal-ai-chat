@@ -7,12 +7,13 @@ import { GoogleGenAIService } from '../services/GoogleGenAIService';
 import { OpenRouterService } from '../services/OpenRouterService';
 import { ImageGenerationService } from '../services/ImageGenerationService';
 import { MidjourneyService } from '../services/MidjourneyService';
+import { FileAnalysisService } from '../services/FileAnalysisService';
 import { MessageBubble } from './MessageBubble';
 import { ModelSelector } from './ModelSelector';
 import { ProviderSelector } from './ProviderSelector';
 import { WelcomeScreen } from './WelcomeScreen';
-import { FileUpload } from './FileUpload';
-import { Send, Image as ImageIcon, Paperclip, X } from 'lucide-react';
+import { EnhancedFileUpload } from './EnhancedFileUpload';
+import { Send, Image as ImageIcon, Paperclip, X, Brain } from 'lucide-react';
 import { MainWorkspace } from './MainWorkspace';
 import ImageStyleSelector from './ImageStyleSelector';
 
@@ -23,11 +24,12 @@ interface UploadedFile {
   size: number;
   content: string;
   preview?: string;
+  analysis?: string;
 }
 
 // Constants for context management
-const MAX_FILE_CONTENT_CHARS = 50000; // Limit file content to 50k characters
-const MAX_CONVERSATION_HISTORY_MESSAGES = 10; // Keep only last 10 messages for context
+const MAX_FILE_CONTENT_CHARS = 100000; // Increased limit for better analysis
+const MAX_CONVERSATION_HISTORY_MESSAGES = 15; // Increased for better context
 
 export const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -41,15 +43,26 @@ export const ChatInterface: React.FC = () => {
     output: string;
   }>({ isRunning: false, output: '' });
   const [input, setInput] = useState('');
-  const [imageStyle, setImageStyle] = useState(1); // Default to "No Style"
-  const [imageSize, setImageSize] = useState('1-1'); // Default to square
+  const [imageStyle, setImageStyle] = useState(1);
+  const [imageSize, setImageSize] = useState('1-1');
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [isAnalyzingFiles, setIsAnalyzingFiles] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const openRouterService = useRef(new OpenRouterService()).current;
   const googleAIService = useRef(new GoogleGenAIService()).current;
   const imageGenerationService = useRef(new ImageGenerationService()).current;
   const midjourneyService = useRef(new MidjourneyService()).current;
+  const fileAnalysisService = useRef<FileAnalysisService | null>(null);
+
+  // Initialize file analysis service
+  useEffect(() => {
+    try {
+      fileAnalysisService.current = new FileAnalysisService();
+    } catch (error) {
+      console.warn('File analysis service not available:', error);
+    }
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -61,8 +74,7 @@ export const ChatInterface: React.FC = () => {
 
   const handleProviderChange = (newProvider: Provider) => {
     setProvider(newProvider);
-    // When switching to image generation, keep the current model type
-    const newModel = newProvider.models[0]; // Just take the first model for image generation
+    const newModel = newProvider.models[0];
     setModel(newModel);
   };
 
@@ -78,14 +90,65 @@ export const ChatInterface: React.FC = () => {
     setUploadedFiles(files);
   };
 
-  const formatFilesForMessage = (files: UploadedFile[]): string => {
+  const analyzeFilesWithAI = async (files: UploadedFile[]): Promise<string> => {
+    if (!fileAnalysisService.current || files.length === 0) return '';
+
+    setIsAnalyzingFiles(true);
+    try {
+      let analysisText = '\n\n--- AI File Analysis ---\n';
+      
+      for (const file of files) {
+        try {
+          // Create a File object from the uploaded file data
+          let fileBlob: Blob;
+          
+          if (file.content.startsWith('data:')) {
+            // Handle data URLs (images, etc.)
+            const response = await fetch(file.content);
+            fileBlob = await response.blob();
+          } else {
+            // Handle text content
+            fileBlob = new Blob([file.content], { type: file.type });
+          }
+          
+          const fileObj = new File([fileBlob], file.name, { type: file.type });
+          const analysis = await fileAnalysisService.current.analyzeFile(fileObj);
+          
+          analysisText += `\n**${file.name}** (${file.type}):\n`;
+          analysisText += `${analysis.analysis}\n\n`;
+          
+          // Also include the content for text files
+          if (analysis.fileType === 'text' && analysis.content) {
+            analysisText += `Content:\n\`\`\`\n${analysis.content.substring(0, MAX_FILE_CONTENT_CHARS)}\n\`\`\`\n\n`;
+          }
+          
+        } catch (error) {
+          console.error(`Error analyzing file ${file.name}:`, error);
+          analysisText += `\n**${file.name}**: Analysis failed - ${error instanceof Error ? error.message : 'Unknown error'}\n\n`;
+        }
+      }
+      
+      return analysisText;
+    } catch (error) {
+      console.error('Error in file analysis:', error);
+      return '\n\n--- File Analysis Error ---\nFailed to analyze files with AI.\n\n';
+    } finally {
+      setIsAnalyzingFiles(false);
+    }
+  };
+
+  const formatFilesForMessage = async (files: UploadedFile[]): Promise<string> => {
     if (files.length === 0) return '';
     
+    // First, try AI analysis if available
+    const aiAnalysis = await analyzeFilesWithAI(files);
+    if (aiAnalysis) return aiAnalysis;
+    
+    // Fallback to basic file information
     let filesText = '\n\n--- Uploaded Files ---\n';
     files.forEach((file, index) => {
       filesText += `\n${index + 1}. **${file.name}** (${file.type}, ${formatFileSize(file.size)})\n`;
       
-      // Include file content for text files with truncation
       if (file.type.startsWith('text/') || 
           file.type.includes('json') || 
           file.type.includes('csv') ||
@@ -97,7 +160,6 @@ export const ChatInterface: React.FC = () => {
         let content = file.content;
         let truncated = false;
         
-        // Truncate content if it exceeds the maximum allowed characters
         if (content.length > MAX_FILE_CONTENT_CHARS) {
           content = content.substring(0, MAX_FILE_CONTENT_CHARS);
           truncated = true;
@@ -109,8 +171,7 @@ export const ChatInterface: React.FC = () => {
           filesText += `[Content truncated - showing first ${MAX_FILE_CONTENT_CHARS} characters of ${file.content.length} total]\n`;
         }
       } else if (file.type.startsWith('image/')) {
-        filesText += `[Image file - Please analyze and describe this image in detail, including any text, objects, people, colors, composition, and other visual elements you can observe.]\n`;
-        // For vision-capable models, we'll include the image data
+        filesText += `[Image file - Please analyze and describe this image in detail]\n`;
         if (provider.id === 'google' || provider.id === 'openrouter') {
           filesText += `Image data: ${file.content}\n`;
         }
@@ -133,14 +194,25 @@ export const ChatInterface: React.FC = () => {
   const handleSendMessage = async () => {
     if (!input.trim() && uploadedFiles.length === 0) return;
     
-    // If the current provider is for image generation, use handleGenerateImage instead
     if (provider.id === 'rapidapi') {
       handleGenerateImage();
       return;
     }
 
     const now = Date.now();
-    const messageContent = input + formatFilesForMessage(uploadedFiles);
+    
+    // Show analyzing indicator if files are being processed
+    if (uploadedFiles.length > 0 && isAnalyzingFiles) {
+      const analysisMessage: Message = {
+        id: `analysis-${now}`,
+        role: 'assistant',
+        content: '🧠 Analyzing uploaded files with AI...',
+        timestamp: new Date(now),
+      };
+      setMessages(prev => [...prev, analysisMessage]);
+    }
+
+    const messageContent = input + await formatFilesForMessage(uploadedFiles);
     
     const userMessage: Message = {
       id: `user-${now}`,
@@ -149,7 +221,6 @@ export const ChatInterface: React.FC = () => {
       timestamp: new Date(now),
     };
 
-    // Add a temporary loading message
     const loadingMessageId = `loading-${Date.now()}`;
     const loadingMessage: Message = {
       id: loadingMessageId,
@@ -160,16 +231,20 @@ export const ChatInterface: React.FC = () => {
       model: model.id,
     };
     
-    setMessages(prev => [...prev, userMessage, loadingMessage]);
+    // Remove analysis message if it exists and add user message and loading
+    setMessages(prev => {
+      const filtered = prev.filter(msg => !msg.id.startsWith('analysis-'));
+      return [...filtered, userMessage, loadingMessage];
+    });
+    
     setIsLoading(true);
     const currentInput = input;
     setInput('');
-    setUploadedFiles([]); // Clear uploaded files after sending
+    setUploadedFiles([]);
 
     try {
       let responseText = '';
       
-      // Limit conversation history to prevent context length issues
       const recentMessages = messages.slice(-MAX_CONVERSATION_HISTORY_MESSAGES);
       const conversationHistory = recentMessages.map(msg => ({ 
         role: msg.role, 
@@ -190,7 +265,6 @@ export const ChatInterface: React.FC = () => {
         );
       }
 
-      // Update the loading message with the response
       setMessages(prev => 
         prev.map(msg => 
           msg.id === loadingMessageId 
@@ -221,7 +295,6 @@ export const ChatInterface: React.FC = () => {
   const handleGenerateImage = async () => {
     if (!input.trim()) return;
     
-    // If the current provider is not for image generation, show a message
     if (provider.id !== 'rapidapi') {
       const now = Date.now();
       const errorMessage: Message = {
@@ -242,10 +315,8 @@ export const ChatInterface: React.FC = () => {
       timestamp: new Date(now),
     };
 
-    // Check if we're using Midjourney or FLUX
     const isMidjourney = model.id.includes('midjourney');
     
-    // Add a temporary loading message
     const loadingMessageId = `loading-img-${Date.now()}`;
     const loadingMessage: Message = {
       id: loadingMessageId,
@@ -265,7 +336,6 @@ export const ChatInterface: React.FC = () => {
       let imageUrl: string;
       
       if (isMidjourney) {
-        // Use Midjourney service for generation
         console.log('Generating Midjourney image with prompt:', currentInput);
         const result = await midjourneyService.generateImage(currentInput, {
           width: 1024,
@@ -276,14 +346,12 @@ export const ChatInterface: React.FC = () => {
         });
         imageUrl = result;
       } else {
-        // Use FLUX service for generation with selected style and size
         imageUrl = await imageGenerationService.generateImage(currentInput, {
           style_id: imageStyle,
           size: imageSize
         });
       }
 
-      // Update the loading message with the generated image
       setMessages(prev => 
         prev.map(msg => 
           msg.id === loadingMessageId 
@@ -315,21 +383,18 @@ export const ChatInterface: React.FC = () => {
   const handleViewCode = (files: { code: string; language: string }[]) => {
     setWorkspaceFiles(files);
     setShowWorkspace(true);
-    setExecutionState({ isRunning: false, output: '' }); // Clear previous output
+    setExecutionState({ isRunning: false, output: '' });
   };
 
   const handleRunCode = async (code: string, language: string, input: string = '') => {
     try {
       setExecutionState({ isRunning: true, output: 'Running code...' });
       
-      // Detect the language using both the hint and code content
       const lang = detectLanguage(code, language);
       console.log(`Detected language: ${lang.name} (ID: ${lang.id})`);
       
-      // Prepare the code based on language
       let processedCode = code;
       
-      // Add boilerplate for specific languages if needed
       if (lang.id === 62) { // Java
         if (!code.includes('public class Main')) {
           const className = code.match(/class\s+(\w+)/)?.[1] || 'Main';
@@ -340,16 +405,13 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
 }`;
         }
       } else if (lang.id === 71 || lang.id === 70) { // Python
-        // Ensure print statements work in Python 2/3
         processedCode = code.replace(/print\s+(?![(])/g, 'print(') + '\n';
       }
       
       console.log('Executing code with language:', lang.name);
       
-      // Execute the code using CodeExecutionService with input
       const result = await CodeExecutionService.executeCode(processedCode, lang.id, input);
       
-      // Format the output
       let output = '';
       if (input) output += `Input:\n${input}\n\n`;
       if (result.stdout) output += `Output:\n${result.stdout}\n\n`;
@@ -373,7 +435,6 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
       if (error instanceof Error) {
         errorMessage = error.message;
         
-        // Add more user-friendly messages for common errors
         if (errorMessage.includes('timeout') || errorMessage.includes('Time limit exceeded')) {
           errorMessage = 'Execution timed out. Your code took too long to run.';
         } else if (errorMessage.includes('memory') || errorMessage.includes('Memory limit exceeded')) {
@@ -443,12 +504,13 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
       {showFileUpload && (
         <div className="border-t border-gray-700 bg-gray-800/95 backdrop-blur-sm">
           <div className="max-w-4xl mx-auto p-4">
-            <FileUpload
+            <EnhancedFileUpload
               onFilesUploaded={handleFilesUploaded}
               onClose={() => setShowFileUpload(false)}
               maxFiles={5}
               maxSizeInMB={10}
               acceptedTypes={['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c']}
+              enableAnalysis={true}
             />
           </div>
         </div>
@@ -471,6 +533,9 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
                     </div>
                   )}
                   <span className="text-gray-300 truncate max-w-32">{file.name}</span>
+                  {isAnalyzingFiles && (
+                    <Brain size={14} className="text-purple-400 animate-pulse" />
+                  )}
                   <button
                     onClick={() => setUploadedFiles(files => files.filter(f => f.id !== file.id))}
                     className="text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-colors"
@@ -502,11 +567,11 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
             onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
             placeholder={provider.id === 'rapidapi' ? 'Describe the image you want to generate...' : 'Type a message...'}
             className="flex-1 p-3 bg-gray-800 border border-gray-700 border-l-0 border-r-0 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
-            disabled={isLoading}
+            disabled={isLoading || isAnalyzingFiles}
           />
           <button
             onClick={handleSendMessage}
-            disabled={isLoading || (!input.trim() && uploadedFiles.length === 0)}
+            disabled={isLoading || isAnalyzingFiles || (!input.trim() && uploadedFiles.length === 0)}
             className="p-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors duration-200"
             title="Send message"
           >
