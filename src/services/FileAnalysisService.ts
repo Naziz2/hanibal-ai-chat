@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAIService } from './GoogleGenAIService';
 
 export interface FileAnalysisResult {
   content: string;
@@ -7,29 +7,31 @@ export interface FileAnalysisResult {
 }
 
 export class FileAnalysisService {
-  private ai: GoogleGenerativeAI;
+  private googleAIService: GoogleGenAIService;
 
   constructor(apiKey?: string) {
-    const apiKeyToUse = apiKey || import.meta.env.VITE_GOOGLE_GENAI_API_KEY || '';
-    
-    if (!apiKeyToUse) {
+    try {
+      this.googleAIService = new GoogleGenAIService(apiKey);
+    } catch (error) {
       throw new Error('Google Generative AI API key is required for file analysis');
     }
-    
-    this.ai = new GoogleGenerativeAI(apiKeyToUse);
   }
 
   /**
    * Analyze a file with AI and return detailed analysis
    */
-  async analyzeFile(file: File, prompt: string = "Analyze this file and provide a detailed summary of its contents."): Promise<FileAnalysisResult> {
+  async analyzeFile(file: File, prompt?: string): Promise<FileAnalysisResult> {
     try {
-      console.log('Starting file analysis with Google GenAI for:', file.name);
+      console.log('Starting file analysis for:', file.name);
       
       // For text-based files, read content directly
       if (this.isTextFile(file)) {
         const fileContent = await this.readTextFile(file);
-        const analysis = await this.analyzeTextContent(fileContent, file.name, prompt);
+        const analysis = await this.googleAIService.analyzeFileContent(
+          fileContent, 
+          file.name, 
+          prompt
+        );
         
         return {
           content: fileContent,
@@ -38,9 +40,14 @@ export class FileAnalysisService {
         };
       }
 
-      // For images and other binary files, use Google's file upload API
+      // For images, use vision analysis
       if (this.isImageFile(file)) {
-        const analysis = await this.analyzeImageFile(file, prompt);
+        const imageData = await this.readFileAsDataURL(file);
+        const analysis = await this.googleAIService.analyzeImageFile(
+          imageData,
+          file.name,
+          prompt
+        );
         
         return {
           content: '', // Binary content not readable as text
@@ -49,7 +56,7 @@ export class FileAnalysisService {
         };
       }
 
-      // For other file types, try to extract what we can
+      // For other file types, provide basic analysis
       const basicAnalysis = await this.analyzeGenericFile(file, prompt);
       
       return {
@@ -107,77 +114,12 @@ export class FileAnalysisService {
   }
 
   /**
-   * Analyze text content using Google GenAI
+   * Read file as data URL
    */
-  private async analyzeTextContent(content: string, fileName: string, prompt: string): Promise<string> {
-    const model = this.ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-    
-    const enhancedPrompt = `${prompt}
-
-File: ${fileName}
-Content:
-${content}
-
-Please provide a comprehensive analysis including:
-1. File type and format
-2. Main content summary
-3. Key information extracted
-4. Structure and organization
-5. Any notable patterns or insights
-6. Potential use cases or applications`;
-
-    const result = await model.generateContent(enhancedPrompt);
-    const response = await result.response;
-    return response.text();
-  }
-
-  /**
-   * Analyze image file using Google GenAI vision capabilities
-   */
-  private async analyzeImageFile(file: File, prompt: string): Promise<string> {
-    try {
-      // Convert file to base64 for inline data
-      const fileData = await this.fileToGenerativePart(file);
-      
-      // Generate analysis using vision model
-      const model = this.ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-      
-      const enhancedPrompt = `${prompt}
-
-Please analyze this image and provide:
-1. Detailed description of what you see
-2. Objects, people, text, and elements present
-3. Colors, composition, and style
-4. Context and setting
-5. Any text content (OCR)
-6. Technical details (if applicable)
-7. Potential use cases or significance`;
-
-      const result = await model.generateContent([enhancedPrompt, fileData]);
-      const response = await result.response;
-      return response.text();
-
-    } catch (error) {
-      console.error('Error analyzing image:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Convert file to GenerativePart format for inline data
-   */
-  private async fileToGenerativePart(file: File): Promise<{ inlineData: { data: string; mimeType: string } }> {
+  private readFileAsDataURL(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const base64Data = (reader.result as string).split(',')[1];
-        resolve({
-          inlineData: {
-            data: base64Data,
-            mimeType: file.type,
-          },
-        });
-      };
+      reader.onload = () => resolve(reader.result as string);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
@@ -186,9 +128,7 @@ Please analyze this image and provide:
   /**
    * Analyze generic/binary files
    */
-  private async analyzeGenericFile(file: File, prompt: string): Promise<string> {
-    const model = this.ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-    
+  private async analyzeGenericFile(file: File, prompt?: string): Promise<string> {
     const fileInfo = {
       name: file.name,
       type: file.type || 'unknown',
@@ -196,7 +136,7 @@ Please analyze this image and provide:
       lastModified: new Date(file.lastModified).toISOString()
     };
 
-    const enhancedPrompt = `${prompt}
+    const defaultPrompt = `Please analyze this file based on its metadata:
 
 File Information:
 - Name: ${fileInfo.name}
@@ -204,16 +144,29 @@ File Information:
 - Size: ${this.formatFileSize(fileInfo.size)}
 - Last Modified: ${fileInfo.lastModified}
 
-This appears to be a binary or unsupported file type. Please provide:
-1. Analysis based on file extension and type
-2. Likely content and purpose
-3. Common use cases for this file type
-4. Recommended tools or methods for viewing/editing
-5. Any security considerations`;
+Please provide:
+1. **File Type Analysis**: What type of file this likely is based on extension and MIME type
+2. **Likely Content and Purpose**: What this file probably contains and its purpose
+3. **Common Use Cases**: How this file type is typically used
+4. **Recommended Tools**: What software or tools can open/edit this file
+5. **Security Considerations**: Any security aspects to be aware of
+6. **Additional Insights**: Any other relevant information about this file type`;
 
-    const result = await model.generateContent(enhancedPrompt);
-    const response = await result.response;
-    return response.text();
+    const analysisPrompt = prompt || defaultPrompt;
+
+    try {
+      const messages = [{ role: 'user' as const, content: analysisPrompt }];
+      return await this.googleAIService.generateText(messages);
+    } catch (error) {
+      console.error('Error analyzing generic file:', error);
+      return `Basic file analysis for ${file.name}:
+- File type: ${file.type || 'Unknown'}
+- Size: ${this.formatFileSize(file.size)}
+- Extension: ${file.name.split('.').pop()?.toUpperCase() || 'None'}
+- Last modified: ${new Date(file.lastModified).toLocaleString()}
+
+This appears to be a ${file.type || 'binary'} file. For detailed analysis, please ensure your Google AI API key is properly configured.`;
+    }
   }
 
   /**
@@ -236,8 +189,13 @@ This appears to be a binary or unsupported file type. Please provide:
     }
 
     if (this.isImageFile(file)) {
-      // Use OCR capabilities of Google GenAI
-      const analysis = await this.analyzeImageFile(file, "Extract all text content from this image using OCR. Return only the extracted text without additional commentary.");
+      // Use OCR capabilities
+      const imageData = await this.readFileAsDataURL(file);
+      const analysis = await this.googleAIService.analyzeImageFile(
+        imageData,
+        file.name,
+        "Extract all text content from this image using OCR. Return only the extracted text without additional commentary."
+      );
       return analysis;
     }
 

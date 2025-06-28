@@ -13,7 +13,7 @@ import { ModelSelector } from './ModelSelector';
 import { ProviderSelector } from './ProviderSelector';
 import { WelcomeScreen } from './WelcomeScreen';
 import { EnhancedFileUpload } from './EnhancedFileUpload';
-import { Send, Image as ImageIcon, Paperclip, X, Brain } from 'lucide-react';
+import { Send, Image as ImageIcon, Paperclip, X, Brain, Search } from 'lucide-react';
 import { MainWorkspace } from './MainWorkspace';
 import ImageStyleSelector from './ImageStyleSelector';
 
@@ -28,8 +28,8 @@ interface UploadedFile {
 }
 
 // Constants for context management
-const MAX_FILE_CONTENT_CHARS = 100000; // Increased limit for better analysis
-const MAX_CONVERSATION_HISTORY_MESSAGES = 15; // Increased for better context
+const MAX_FILE_CONTENT_CHARS = 100000;
+const MAX_CONVERSATION_HISTORY_MESSAGES = 15;
 
 export const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -86,8 +86,13 @@ export const ChatInterface: React.FC = () => {
     setInput(e.target.value);
   };
 
-  const handleFilesUploaded = (files: UploadedFile[]) => {
+  const handleFilesUploaded = async (files: UploadedFile[]) => {
     setUploadedFiles(files);
+    
+    // Auto-analyze files when uploaded
+    if (files.length > 0 && fileAnalysisService.current) {
+      await analyzeFilesWithAI(files);
+    }
   };
 
   const analyzeFilesWithAI = async (files: UploadedFile[]): Promise<string> => {
@@ -112,20 +117,35 @@ export const ChatInterface: React.FC = () => {
           }
           
           const fileObj = new File([fileBlob], file.name, { type: file.type });
-          const analysis = await fileAnalysisService.current.analyzeFile(fileObj);
+          const result = await fileAnalysisService.current.analyzeFile(fileObj);
           
           analysisText += `\n**${file.name}** (${file.type}):\n`;
-          analysisText += `${analysis.analysis}\n\n`;
+          analysisText += `${result.analysis}\n\n`;
           
           // Also include the content for text files
-          if (analysis.fileType === 'text' && analysis.content) {
-            analysisText += `Content:\n\`\`\`\n${analysis.content.substring(0, MAX_FILE_CONTENT_CHARS)}\n\`\`\`\n\n`;
+          if (result.fileType === 'text' && result.content) {
+            const contentPreview = result.content.length > 500 
+              ? result.content.substring(0, 500) + '...' 
+              : result.content;
+            analysisText += `**Content:**\n\`\`\`\n${contentPreview}\n\`\`\`\n\n`;
           }
           
         } catch (error) {
           console.error(`Error analyzing file ${file.name}:`, error);
           analysisText += `\n**${file.name}**: Analysis failed - ${error instanceof Error ? error.message : 'Unknown error'}\n\n`;
         }
+      }
+      
+      // Auto-send analysis message
+      if (analysisText.length > 50) {
+        const now = Date.now();
+        const analysisMessage: Message = {
+          id: `analysis-${now}`,
+          role: 'assistant',
+          content: analysisText,
+          timestamp: new Date(now),
+        };
+        setMessages(prev => [...prev, analysisMessage]);
       }
       
       return analysisText;
@@ -140,12 +160,8 @@ export const ChatInterface: React.FC = () => {
   const formatFilesForMessage = async (files: UploadedFile[]): Promise<string> => {
     if (files.length === 0) return '';
     
-    // First, try AI analysis if available
-    const aiAnalysis = await analyzeFilesWithAI(files);
-    if (aiAnalysis) return aiAnalysis;
-    
-    // Fallback to basic file information
-    let filesText = '\n\n--- Uploaded Files ---\n';
+    // Basic file information for context
+    let filesText = '\n\n--- Uploaded Files Context ---\n';
     files.forEach((file, index) => {
       filesText += `\n${index + 1}. **${file.name}** (${file.type}, ${formatFileSize(file.size)})\n`;
       
@@ -171,10 +187,7 @@ export const ChatInterface: React.FC = () => {
           filesText += `[Content truncated - showing first ${MAX_FILE_CONTENT_CHARS} characters of ${file.content.length} total]\n`;
         }
       } else if (file.type.startsWith('image/')) {
-        filesText += `[Image file - Please analyze and describe this image in detail]\n`;
-        if (provider.id === 'google' || provider.id === 'openrouter') {
-          filesText += `Image data: ${file.content}\n`;
-        }
+        filesText += `[Image file - Already analyzed above]\n`;
       } else {
         filesText += `[Binary file - ${file.type}]\n`;
       }
@@ -200,18 +213,6 @@ export const ChatInterface: React.FC = () => {
     }
 
     const now = Date.now();
-    
-    // Show analyzing indicator if files are being processed
-    if (uploadedFiles.length > 0 && isAnalyzingFiles) {
-      const analysisMessage: Message = {
-        id: `analysis-${now}`,
-        role: 'assistant',
-        content: '🧠 Analyzing uploaded files with AI...',
-        timestamp: new Date(now),
-      };
-      setMessages(prev => [...prev, analysisMessage]);
-    }
-
     const messageContent = input + await formatFilesForMessage(uploadedFiles);
     
     const userMessage: Message = {
@@ -231,12 +232,7 @@ export const ChatInterface: React.FC = () => {
       model: model.id,
     };
     
-    // Remove analysis message if it exists and add user message and loading
-    setMessages(prev => {
-      const filtered = prev.filter(msg => !msg.id.startsWith('analysis-'));
-      return [...filtered, userMessage, loadingMessage];
-    });
-    
+    setMessages(prev => [...prev, userMessage, loadingMessage]);
     setIsLoading(true);
     const currentInput = input;
     setInput('');

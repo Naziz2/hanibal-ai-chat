@@ -12,7 +12,7 @@ type GenerateContentOptions = {
 
 export class GoogleGenAIService {
   private ai: GoogleGenerativeAI;
-  private defaultModel = 'gemini-2.5-flash';
+  private defaultModel = 'gemini-2.0-flash-exp';
 
   constructor(apiKey?: string) {
     // Use provided key or fallback to environment variable
@@ -83,5 +83,83 @@ export class GoogleGenAIService {
         },
       },
     });
+  }
+
+  /**
+   * Analyze file content with AI
+   * @param fileContent The content of the file
+   * @param fileName The name of the file
+   * @param prompt Optional custom prompt
+   * @returns Analysis result
+   */
+  async analyzeFileContent(fileContent: string, fileName: string, prompt?: string): Promise<string> {
+    const defaultPrompt = `Please provide a comprehensive analysis of this file including:
+
+1. **File Type and Format**: Identify the file type, format, and encoding
+2. **Main Content Summary**: Summarize the key content and purpose
+3. **Key Information Extracted**: Extract important data, patterns, or insights
+4. **Structure and Organization**: Describe how the content is organized
+5. **Notable Patterns or Insights**: Identify any interesting patterns, anomalies, or insights
+6. **Potential Use Cases or Applications**: Suggest how this file might be used
+
+File: ${fileName}
+Content:
+${fileContent}`;
+
+    const analysisPrompt = prompt || defaultPrompt;
+
+    try {
+      const model = this.ai.getGenerativeModel({ model: this.defaultModel });
+      const result = await model.generateContent(analysisPrompt);
+      const response = await result.response;
+      return response.text();
+    } catch (error) {
+      console.error('Error analyzing file content:', error);
+      throw new Error(`Failed to analyze file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Analyze image file with AI vision capabilities
+   * @param imageData Base64 image data
+   * @param fileName The name of the file
+   * @param prompt Optional custom prompt
+   * @returns Analysis result
+   */
+  async analyzeImageFile(imageData: string, fileName: string, prompt?: string): Promise<string> {
+    const defaultPrompt = `Please analyze this image and provide:
+
+1. **Detailed Description**: Describe what you see in the image
+2. **Objects and Elements**: List all objects, people, text, and elements present
+3. **Colors and Composition**: Describe the colors, style, and composition
+4. **Context and Setting**: Identify the context, setting, or environment
+5. **Text Content (OCR)**: Extract any text visible in the image
+6. **Technical Details**: Note any technical aspects like quality, resolution, etc.
+7. **Potential Use Cases**: Suggest how this image might be used
+
+Image file: ${fileName}`;
+
+    const analysisPrompt = prompt || defaultPrompt;
+
+    try {
+      // Extract base64 data from data URL
+      const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+      
+      const model = this.ai.getGenerativeModel({ model: this.defaultModel });
+      
+      const imagePart = {
+        inlineData: {
+          data: base64Data,
+          mimeType: 'image/jpeg' // Default, should be determined from actual file type
+        }
+      };
+
+      const result = await model.generateContent([analysisPrompt, imagePart]);
+      const response = await result.response;
+      return response.text();
+    } catch (error) {
+      console.error('Error analyzing image:', error);
+      throw new Error(`Failed to analyze image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }
