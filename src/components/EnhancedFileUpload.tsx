@@ -128,17 +128,19 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
     try {
       const result = await analysisService.analyzeFile(file);
       
-      // Format the analysis with proper header
+      // Format the analysis with proper header and structure
       const formattedAnalysis = `--- AI File Analysis ---
 
-${file.name} (${file.type}): ${result.analysis}`;
+**File:** ${file.name} (${file.type}, ${formatFileSize(file.size)})
+
+${result.analysis}`;
 
       setAnalysisResults(prev => ({
         ...prev,
         [fileId]: formattedAnalysis
       }));
 
-      // Update file status to completed
+      // Update file status to completed and include the uploaded file info
       setUploadedFiles(prev => prev.map(f => 
         f.id === fileId ? { 
           ...f, 
@@ -148,11 +150,31 @@ ${file.name} (${file.type}): ${result.analysis}`;
         } : f
       ));
 
+      // Trigger the parent callback with updated files
+      const updatedFiles = uploadedFiles.map(f => 
+        f.id === fileId ? { 
+          ...f, 
+          analysisStatus: 'completed' as const,
+          analysis: formattedAnalysis,
+          uploadedFile: result.uploadedFile
+        } : f
+      );
+      onFilesUploaded(updatedFiles);
+
     } catch (error) {
       console.error('File analysis failed:', error);
       const errorAnalysis = `--- AI File Analysis ---
 
-Error analyzing file ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+**File:** ${file.name} (${file.type}, ${formatFileSize(file.size)})
+
+❌ **Analysis Error:** ${error instanceof Error ? error.message : 'Unknown error occurred during analysis'}
+
+**File Information:**
+- Type: ${file.type || 'Unknown'}
+- Size: ${formatFileSize(file.size)}
+- Last Modified: ${new Date(file.lastModified).toLocaleString()}
+
+*Note: The file was uploaded but automatic analysis failed. You can still use this file in your conversation.*`;
       
       setAnalysisResults(prev => ({
         ...prev,
@@ -209,6 +231,7 @@ Error analyzing file ${file.name}: ${error instanceof Error ? error.message : 'U
 
         // Start analysis automatically if enabled
         if (enableAnalysis && autoAnalyze) {
+          // Small delay to ensure the file is added to state first
           setTimeout(() => analyzeFile(file, fileId), 100);
         }
       }

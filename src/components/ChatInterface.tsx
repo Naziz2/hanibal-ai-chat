@@ -110,18 +110,20 @@ export const ChatInterface: React.FC = () => {
     files.forEach((file, index) => {
       filesText += `\n${index + 1}. **${file.name}** (${file.type}, ${formatFileSize(file.size)})\n`;
       
-      // Show analysis if available
+      // Always include analysis if available, prioritizing it over raw content
       if (file.analysis) {
         filesText += `\n${file.analysis}\n\n`;
       } else {
-        // For text files, include content
-        if (file.type.startsWith('text/') || 
-            file.type.includes('json') || 
-            file.type.includes('csv') ||
-            file.name.endsWith('.md') ||
-            file.name.endsWith('.txt') ||
-            file.name.endsWith('.json') ||
-            file.name.endsWith('.csv')) {
+        // For files without analysis, provide basic info
+        if (file.type.startsWith('image/')) {
+          filesText += `[Image file: ${file.name} - Please analyze this image and describe what you see in detail, including any text, objects, people, colors, composition, and other visual elements.]\n\n`;
+        } else if (file.type.startsWith('text/') || 
+                   file.type.includes('json') || 
+                   file.type.includes('csv') ||
+                   file.name.endsWith('.md') ||
+                   file.name.endsWith('.txt') ||
+                   file.name.endsWith('.json') ||
+                   file.name.endsWith('.csv')) {
           
           let content = file.content;
           let truncated = false;
@@ -136,8 +138,6 @@ export const ChatInterface: React.FC = () => {
           if (truncated) {
             filesText += `[Content truncated - showing first ${MAX_FILE_CONTENT_CHARS} characters of ${file.content.length} total]\n`;
           }
-        } else if (file.type.startsWith('image/')) {
-          filesText += `[Image file: ${file.name}]\n`;
         } else {
           filesText += `[File: ${file.name} - ${file.type}]\n`;
         }
@@ -246,7 +246,7 @@ export const ChatInterface: React.FC = () => {
     const now = Date.now();
     let messageContent = input;
     
-    // Check if we have files with Google AI uploads
+    // Check if we have files with Google AI uploads for direct file handling
     const filesWithUploads = uploadedFiles.filter(f => f.uploadedFile);
     
     if (filesWithUploads.length > 0 && provider.id === 'google') {
@@ -308,7 +308,7 @@ export const ChatInterface: React.FC = () => {
       return;
     }
     
-    // Fallback to regular message handling
+    // For files without analysis or non-Google providers, include file information in message
     messageContent += formatFilesForMessage(uploadedFiles);
     
     const userMessage: Message = {
@@ -611,7 +611,7 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
               maxSizeInMB={10}
               acceptedTypes={['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c', '.mp3', '.mp4', '.wav']}
               enableAnalysis={true}
-              autoAnalyze={false}
+              autoAnalyze={true}
             />
           </div>
         </div>
