@@ -31,7 +31,7 @@ interface UploadedFile {
 
 // Constants for context management
 const MAX_FILE_CONTENT_CHARS = 50000;
-const MAX_CONVERSATION_HISTORY_MESSAGES = 20; // Increased for better chain conversation
+const MAX_CONVERSATION_HISTORY_MESSAGES = 10;
 
 export const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -89,12 +89,10 @@ export const ChatInterface: React.FC = () => {
     setProvider(newProvider);
     const newModel = newProvider.models[0];
     setModel(newModel);
-    // Note: We keep the conversation history when changing providers for chain conversation
   };
 
   const handleModelChange = (newModel: Model) => {
     setModel(newModel);
-    // Note: We keep the conversation history when changing models for chain conversation
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -276,18 +274,10 @@ export const ChatInterface: React.FC = () => {
       setUploadedFiles([]);
 
       try {
-        // Include conversation history for chain conversation
-        const recentMessages = messages.slice(-MAX_CONVERSATION_HISTORY_MESSAGES);
-        const conversationHistory = recentMessages.map(msg => ({ 
-          role: msg.role, 
-          content: msg.content || '' 
-        }));
-
         const responseText = await googleAIService.generateContentWithFiles(
           messageContent,
           filesWithUploads.map(f => f.uploadedFile!),
-          model.id,
-          conversationHistory // Pass conversation history
+          model.id
         );
 
         setMessages(prev => 
@@ -346,7 +336,6 @@ export const ChatInterface: React.FC = () => {
     try {
       let responseText = '';
       
-      // Include conversation history for chain conversation across providers
       const recentMessages = messages.slice(-MAX_CONVERSATION_HISTORY_MESSAGES);
       const conversationHistory = recentMessages.map(msg => ({ 
         role: msg.role, 
@@ -568,19 +557,9 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
       <div className="relative z-10 flex-shrink-0 border-b border-gray-700 bg-gray-900/95 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-                AI Chat
-              </h1>
-              {messages.length > 0 && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-                  <span className="text-xs text-blue-400 font-medium">
-                    Chain Conversation Active
-                  </span>
-                </div>
-              )}
-            </div>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+              AI Chat
+            </h1>
             <div className="flex items-center space-x-3">
               <ProviderSelector
                 providers={PROVIDERS}
@@ -632,7 +611,7 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
               maxSizeInMB={10}
               acceptedTypes={['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c', '.mp3', '.mp4', '.wav']}
               enableAnalysis={true}
-              autoAnalyze={false} // Changed to false - analysis happens on submit
+              autoAnalyze={true}
             />
           </div>
         </div>
