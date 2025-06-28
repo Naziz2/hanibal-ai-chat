@@ -123,10 +123,11 @@ ${fileContent}`;
    * Analyze image file with AI vision capabilities
    * @param imageData Base64 image data
    * @param fileName The name of the file
+   * @param mimeType The MIME type of the image
    * @param prompt Optional custom prompt
    * @returns Analysis result
    */
-  async analyzeImageFile(imageData: string, fileName: string, prompt?: string): Promise<string> {
+  async analyzeImageFile(imageData: string, fileName: string, mimeType: string, prompt?: string): Promise<string> {
     const defaultPrompt = `Please analyze this image and provide:
 
 1. **Detailed Description**: Describe what you see in the image
@@ -150,7 +151,7 @@ Image file: ${fileName}`;
       const imagePart = {
         inlineData: {
           data: base64Data,
-          mimeType: 'image/jpeg' // Default, should be determined from actual file type
+          mimeType: mimeType
         }
       };
 

@@ -46,6 +46,7 @@ export class FileAnalysisService {
         const analysis = await this.googleAIService.analyzeImageFile(
           imageData,
           file.name,
+          file.type,
           prompt
         );
         
@@ -194,6 +195,7 @@ This appears to be a ${file.type || 'binary'} file. For detailed analysis, pleas
       const analysis = await this.googleAIService.analyzeImageFile(
         imageData,
         file.name,
+        file.type,
         "Extract all text content from this image using OCR. Return only the extracted text without additional commentary."
       );
       return analysis;
