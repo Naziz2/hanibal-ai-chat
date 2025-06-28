@@ -24,7 +24,7 @@ export class FileAnalysisService {
     try {
       console.log('Starting file analysis for:', file.name);
       
-      // Use the new file upload API for all file types
+      // Use the enhanced file analysis method with fallback handling
       const analysis = await this.googleAIService.analyzeFileContent(file, prompt);
       
       // Determine file type
@@ -40,14 +40,43 @@ export class FileAnalysisService {
       }
 
       return {
-        content: '', // Content is handled by the upload API
+        content: '', // Content is handled by the analysis service
         fileType,
         analysis
       };
 
     } catch (error) {
       console.error('Error analyzing file:', error);
-      throw new Error(`Failed to analyze file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Provide a fallback analysis with basic file information
+      const metadata = this.getFileMetadata(file);
+      const fallbackAnalysis = `**File Analysis (Limited)**
+
+**Basic Information:**
+- **File Name:** ${metadata.name}
+- **File Type:** ${metadata.type}
+- **File Size:** ${metadata.sizeFormatted}
+- **Extension:** ${metadata.extension}
+- **Last Modified:** ${metadata.lastModified.toLocaleString()}
+
+**Analysis Status:** 
+Unable to perform full AI analysis due to API limitations. This may be because:
+- The Google AI API key doesn't have file upload permissions
+- The file type is not supported for direct analysis
+- There was a temporary API issue
+
+**Recommendations:**
+- For text files: Try copying and pasting the content directly into the chat
+- For images: The system may still be able to analyze them using alternative methods
+- Check your API key configuration and permissions
+
+**Error Details:** ${error instanceof Error ? error.message : 'Unknown error'}`;
+
+      return {
+        content: '',
+        fileType: this.getFileTypeFromFile(file),
+        analysis: fallbackAnalysis
+      };
     }
   }
 
@@ -60,7 +89,23 @@ export class FileAnalysisService {
       return await this.googleAIService.analyzeMultipleFiles(files, prompt);
     } catch (error) {
       console.error('Error analyzing multiple files:', error);
-      throw new Error(`Failed to analyze files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Provide fallback analysis for multiple files
+      let fallbackAnalysis = `**Multiple File Analysis (Limited)**\n\n`;
+      fallbackAnalysis += `**Files Provided:** ${files.length}\n\n`;
+      
+      files.forEach((file, index) => {
+        const metadata = this.getFileMetadata(file);
+        fallbackAnalysis += `**${index + 1}. ${metadata.name}**\n`;
+        fallbackAnalysis += `- Type: ${metadata.type}\n`;
+        fallbackAnalysis += `- Size: ${metadata.sizeFormatted}\n`;
+        fallbackAnalysis += `- Extension: ${metadata.extension}\n\n`;
+      });
+      
+      fallbackAnalysis += `**Analysis Status:** Unable to perform full AI analysis due to API limitations.\n\n`;
+      fallbackAnalysis += `**Error:** ${error instanceof Error ? error.message : 'Unknown error'}`;
+      
+      return fallbackAnalysis;
     }
   }
 
@@ -120,6 +165,17 @@ export class FileAnalysisService {
 
     return documentTypes.some(type => file.type === type) ||
            documentExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+  }
+
+  /**
+   * Get file type from file
+   */
+  private getFileTypeFromFile(file: File): string {
+    if (this.isTextFile(file)) return 'text';
+    if (this.isImageFile(file)) return 'image';
+    if (this.isPDFFile(file)) return 'pdf';
+    if (this.isDocumentFile(file)) return 'document';
+    return 'binary';
   }
 
   /**
