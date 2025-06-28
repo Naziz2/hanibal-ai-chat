@@ -136,37 +136,10 @@ Please provide a comprehensive analysis including:
    */
   private async analyzeImageFile(file: File, prompt: string): Promise<string> {
     try {
-      // Upload file to Google GenAI
-      const uploadedFile = await this.ai.files.upload({
-        file: file,
-        config: {
-          displayName: file.name,
-        },
-      });
-
-      console.log('Image uploaded successfully:', uploadedFile.name);
-
-      // Wait for file processing
-      let getFile = await this.ai.files.get({ name: uploadedFile.name });
-      let retryCount = 0;
-      const maxRetries = 12;
-
-      while (getFile.state === 'PROCESSING' && retryCount < maxRetries) {
-        console.log(`File processing status: ${getFile.state}`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        getFile = await this.ai.files.get({ name: uploadedFile.name });
-        retryCount++;
-      }
-
-      if (getFile.state === 'FAILED') {
-        throw new Error('File processing failed');
-      }
-
-      if (getFile.state === 'PROCESSING') {
-        throw new Error('File processing timeout');
-      }
-
-      // Generate analysis
+      // Convert file to base64 for inline data
+      const fileData = await this.fileToGenerativePart(file);
+      
+      // Generate analysis using vision model
       const model = this.ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
       
       const enhancedPrompt = `${prompt}
@@ -180,16 +153,7 @@ Please analyze this image and provide:
 6. Technical details (if applicable)
 7. Potential use cases or significance`;
 
-      const result = await model.generateContent([
-        enhancedPrompt,
-        {
-          fileData: {
-            mimeType: getFile.mimeType!,
-            fileUri: getFile.uri!
-          }
-        }
-      ]);
-
+      const result = await model.generateContent([enhancedPrompt, fileData]);
       const response = await result.response;
       return response.text();
 
@@ -197,6 +161,26 @@ Please analyze this image and provide:
       console.error('Error analyzing image:', error);
       throw error;
     }
+  }
+
+  /**
+   * Convert file to GenerativePart format for inline data
+   */
+  private async fileToGenerativePart(file: File): Promise<{ inlineData: { data: string; mimeType: string } }> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64Data = (reader.result as string).split(',')[1];
+        resolve({
+          inlineData: {
+            data: base64Data,
+            mimeType: file.type,
+          },
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
 
   /**
