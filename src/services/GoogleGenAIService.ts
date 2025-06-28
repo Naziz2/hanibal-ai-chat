@@ -1,4 +1,5 @@
-import { GoogleGenerativeAI, createPartFromUri } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import * as GenerativeAI from "@google/generative-ai";
 
 type GenerateContentOptions = {
   model?: string;
@@ -174,7 +175,7 @@ File: ${file.name}`;
       const analysisPrompt = prompt || defaultPrompt;
 
       const model = this.ai.getGenerativeModel({ model: this.defaultModel });
-      const fileContent = createPartFromUri(uploadedFile.uri, uploadedFile.mimeType);
+      const fileContent = GenerativeAI.createPartFromUri(uploadedFile.uri, uploadedFile.mimeType);
       
       const result = await model.generateContent([analysisPrompt, fileContent]);
       const response = await result.response;
@@ -258,7 +259,7 @@ Image file: ${file.name}`;
       const analysisPrompt = prompt || defaultPrompt;
 
       const model = this.ai.getGenerativeModel({ model: this.defaultModel });
-      const fileContent = createPartFromUri(uploadedFile.uri, uploadedFile.mimeType);
+      const fileContent = GenerativeAI.createPartFromUri(uploadedFile.uri, uploadedFile.mimeType);
       
       const result = await model.generateContent([analysisPrompt, fileContent]);
       const response = await result.response;
@@ -350,7 +351,7 @@ Files to analyze:`;
             const uploadedFile = await this.uploadFile(file);
             if (uploadedFile.uri && uploadedFile.mimeType) {
               uploadedFiles.push(uploadedFile);
-              const fileContent = createPartFromUri(uploadedFile.uri, uploadedFile.mimeType);
+              const fileContent = GenerativeAI.createPartFromUri(uploadedFile.uri, uploadedFile.mimeType);
               content.push(fileContent);
             }
           }
