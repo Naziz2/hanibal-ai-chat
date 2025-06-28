@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export interface FileAnalysisResult {
   content: string;
@@ -7,7 +7,7 @@ export interface FileAnalysisResult {
 }
 
 export class FileAnalysisService {
-  private ai: GoogleGenAI;
+  private ai: GoogleGenerativeAI;
 
   constructor(apiKey?: string) {
     const apiKeyToUse = apiKey || import.meta.env.VITE_GOOGLE_GENAI_API_KEY || '';
@@ -16,7 +16,7 @@ export class FileAnalysisService {
       throw new Error('Google Generative AI API key is required for file analysis');
     }
     
-    this.ai = new GoogleGenAI(apiKeyToUse);
+    this.ai = new GoogleGenerativeAI(apiKeyToUse);
   }
 
   /**
