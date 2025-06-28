@@ -13,16 +13,22 @@ type GenerateContentOptions = {
 export class GoogleGenAIService {
   private ai: GoogleGenerativeAI;
   private defaultModel = 'gemini-2.0-flash-exp';
+  private apiKey: string;
 
   constructor(apiKey?: string) {
     // Use provided key or fallback to environment variable
-    const apiKeyToUse = apiKey || import.meta.env.VITE_GOOGLE_GENAI_API_KEY || '';
+    this.apiKey = apiKey || import.meta.env.VITE_GOOGLE_GENAI_API_KEY || '';
     
-    if (!apiKeyToUse) {
+    if (!this.apiKey) {
       throw new Error('Google Generative AI API key is required. Please set VITE_GOOGLE_GENAI_API_KEY in your .env file');
     }
     
-    this.ai = new GoogleGenerativeAI({ apiKey: apiKeyToUse });
+    try {
+      this.ai = new GoogleGenerativeAI(this.apiKey);
+    } catch (error) {
+      console.error('Failed to initialize Google Generative AI:', error);
+      throw new Error('Failed to initialize Google Generative AI client. Please check your API key.');
+    }
   }
 
   /**
@@ -33,6 +39,11 @@ export class GoogleGenAIService {
   async uploadFile(file: File): Promise<{ uri: string; mimeType: string; name: string }> {
     try {
       console.log('Uploading file to Google AI:', file.name);
+      
+      // Check if the files API is available
+      if (!this.ai.files) {
+        throw new Error('File upload API is not available. This may be due to an invalid API key or unsupported client version.');
+      }
       
       // Convert File to the format expected by Google AI
       const uploadedFile = await this.ai.files.upload({
@@ -52,6 +63,17 @@ export class GoogleGenAIService {
       };
     } catch (error) {
       console.error('Error uploading file to Google AI:', error);
+      
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('API_KEY_INVALID') || error.message.includes('API key not valid')) {
+          throw new Error('Invalid Google AI API key. Please check your VITE_GOOGLE_GENAI_API_KEY in the .env file.');
+        }
+        if (error.message.includes('upload')) {
+          throw new Error('File upload API is not available. Please verify your API key has the necessary permissions.');
+        }
+      }
+      
       throw new Error(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -89,8 +111,8 @@ export class GoogleGenAIService {
     } catch (error) {
       console.error('Google AI API Error:', error);
       if (error instanceof Error) {
-        if (error.message.includes('API_KEY')) {
-          throw new Error('Invalid API key. Please check your Google AI API key configuration.');
+        if (error.message.includes('API_KEY_INVALID') || error.message.includes('API key not valid')) {
+          throw new Error('Invalid Google AI API key. Please check your VITE_GOOGLE_GENAI_API_KEY in the .env file.');
         }
         throw new Error(`Google AI API error: ${error.message}`);
       }
@@ -139,6 +161,9 @@ export class GoogleGenAIService {
       return response.text();
     } catch (error) {
       console.error('Error generating content with files:', error);
+      if (error instanceof Error && (error.message.includes('API_KEY_INVALID') || error.message.includes('API key not valid'))) {
+        throw new Error('Invalid Google AI API key. Please check your VITE_GOOGLE_GENAI_API_KEY in the .env file.');
+      }
       throw new Error(`Failed to generate content with files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -226,6 +251,9 @@ ${fileContent}`;
       return response.text();
     } catch (error) {
       console.error('Error analyzing file content:', error);
+      if (error instanceof Error && (error.message.includes('API_KEY_INVALID') || error.message.includes('API key not valid'))) {
+        throw new Error('Invalid Google AI API key. Please check your VITE_GOOGLE_GENAI_API_KEY in the .env file.');
+      }
       throw new Error(`Failed to analyze file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -272,6 +300,9 @@ Image file: ${fileName}`;
       return response.text();
     } catch (error) {
       console.error('Error analyzing image:', error);
+      if (error instanceof Error && (error.message.includes('API_KEY_INVALID') || error.message.includes('API key not valid'))) {
+        throw new Error('Invalid Google AI API key. Please check your VITE_GOOGLE_GENAI_API_KEY in the .env file.');
+      }
       throw new Error(`Failed to analyze image: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -282,10 +313,16 @@ Image file: ${fileName}`;
    */
   async listFiles(): Promise<any[]> {
     try {
+      if (!this.ai.files) {
+        throw new Error('File API is not available. Please check your API key.');
+      }
       const files = await this.ai.files.list();
       return files.files || [];
     } catch (error) {
       console.error('Error listing files:', error);
+      if (error instanceof Error && (error.message.includes('API_KEY_INVALID') || error.message.includes('API key not valid'))) {
+        throw new Error('Invalid Google AI API key. Please check your VITE_GOOGLE_GENAI_API_KEY in the .env file.');
+      }
       throw new Error(`Failed to list files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -297,11 +334,32 @@ Image file: ${fileName}`;
    */
   async deleteFile(fileName: string): Promise<void> {
     try {
+      if (!this.ai.files) {
+        throw new Error('File API is not available. Please check your API key.');
+      }
       await this.ai.files.delete(fileName);
       console.log('File deleted successfully:', fileName);
     } catch (error) {
       console.error('Error deleting file:', error);
+      if (error instanceof Error && (error.message.includes('API_KEY_INVALID') || error.message.includes('API key not valid'))) {
+        throw new Error('Invalid Google AI API key. Please check your VITE_GOOGLE_GENAI_API_KEY in the .env file.');
+      }
       throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Check if the API key is valid by making a simple test call
+   * @returns Promise that resolves to true if valid, false otherwise
+   */
+  async validateApiKey(): Promise<boolean> {
+    try {
+      const model = this.ai.getGenerativeModel({ model: this.defaultModel });
+      await model.generateContent('Test');
+      return true;
+    } catch (error) {
+      console.error('API key validation failed:', error);
+      return false;
     }
   }
 }
