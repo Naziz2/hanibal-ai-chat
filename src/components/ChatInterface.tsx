@@ -88,6 +88,7 @@ export const ChatInterface: React.FC = () => {
   };
 
   const handleFilesUploaded = (files: UploadedFile[]) => {
+    // Just store the files without analyzing them
     setUploadedFiles(files);
   };
 
@@ -275,22 +276,30 @@ The files are now ready to be used in our conversation. You can ask me questions
     const now = Date.now();
     let messageContent = input;
     
-    // First, analyze files if they exist and don't have analysis yet
-    let finalFiles = uploadedFiles;
-    const filesToAnalyze = uploadedFiles.filter(f => !f.analysis);
-    
-    if (filesToAnalyze.length > 0 && fileAnalysisService.current) {
-      finalFiles = await analyzeFilesInConversation(uploadedFiles);
-    }
-    
-    // Create user message with just the text input (files will be handled separately)
+    // Create user message first (without files)
     const userMessage: Message = {
       id: `user-${now}`,
       role: 'user',
-      content: messageContent + (finalFiles.length > 0 ? `\n\n📎 ${finalFiles.length} file${finalFiles.length > 1 ? 's' : ''} attached` : ''),
+      content: messageContent + (uploadedFiles.length > 0 ? `\n\n📎 ${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''} attached` : ''),
       timestamp: new Date(now),
     };
 
+    // Add user message to conversation immediately
+    setMessages(prev => [...prev, userMessage]);
+    
+    // Clear input and files immediately
+    const currentInput = input;
+    const currentFiles = [...uploadedFiles];
+    setInput('');
+    setUploadedFiles([]);
+
+    // Now analyze files if they exist (this will add a separate analysis message)
+    let finalFiles = currentFiles;
+    if (currentFiles.length > 0 && fileAnalysisService.current) {
+      finalFiles = await analyzeFilesInConversation(currentFiles);
+    }
+    
+    // Create loading message for AI response
     const loadingMessageId = `loading-${Date.now()}`;
     const loadingMessage: Message = {
       id: loadingMessageId,
@@ -301,10 +310,8 @@ The files are now ready to be used in our conversation. You can ask me questions
       model: model.id,
     };
     
-    setMessages(prev => [...prev, userMessage, loadingMessage]);
+    setMessages(prev => [...prev, loadingMessage]);
     setIsLoading(true);
-    setInput('');
-    setUploadedFiles([]);
 
     try {
       let responseText = '';
@@ -315,13 +322,13 @@ The files are now ready to be used in our conversation. You can ask me questions
       if (filesWithUploads.length > 0 && provider.id === 'google') {
         // Use Google AI's file upload API for better handling
         responseText = await googleAIService.generateContentWithFiles(
-          messageContent,
+          currentInput,
           filesWithUploads.map(f => f.uploadedFile!),
           model.id
         );
       } else {
         // For files without analysis or non-Google providers, include file information in message
-        const fullMessageContent = messageContent + formatFilesForMessage(finalFiles);
+        const fullMessageContent = currentInput + formatFilesForMessage(finalFiles);
         
         const recentMessages = messages.slice(-MAX_CONVERSATION_HISTORY_MESSAGES);
         const conversationHistory = recentMessages.map(msg => ({ 
@@ -611,9 +618,7 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
                     </div>
                   )}
                   <span className="text-gray-300 truncate max-w-32">{file.name}</span>
-                  {!file.analysis && (
-                    <div className="w-2 h-2 bg-purple-400 rounded-full" title="Will be analyzed" />
-                  )}
+                  <div className="w-2 h-2 bg-purple-400 rounded-full" title="Ready for analysis" />
                   <button
                     onClick={() => setUploadedFiles(files => files.filter(f => f.id !== file.id))}
                     className="text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-colors"
@@ -623,12 +628,10 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
                 </div>
               ))}
             </div>
-            {uploadedFiles.some(f => !f.analysis) && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-purple-400">
-                <Brain size={12} />
-                <span>Files will be analyzed when you send your message</span>
-              </div>
-            )}
+            <div className="mt-2 flex items-center gap-2 text-xs text-purple-400">
+              <Brain size={12} />
+              <span>Files will be analyzed when you send your message</span>
+            </div>
           </div>
         )}
 
