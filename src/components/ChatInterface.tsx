@@ -13,7 +13,7 @@ import { ModelSelector } from './ModelSelector';
 import { ProviderSelector } from './ProviderSelector';
 import { WelcomeScreen } from './WelcomeScreen';
 import { FileUpload } from './FileUpload';
-import { Send, Image as ImageIcon, Paperclip, X, Brain } from 'lucide-react';
+import { Send, Image as ImageIcon, Paperclip, X, Brain, FileText } from 'lucide-react';
 import { MainWorkspace } from './MainWorkspace';
 import ImageStyleSelector from './ImageStyleSelector';
 
@@ -26,6 +26,7 @@ interface UploadedFile {
   preview?: string;
   analysis?: string;
   uploadedFile?: { uri: string; mimeType: string; name: string };
+  isAnalyzed?: boolean;
 }
 
 // Constants for context management
@@ -49,6 +50,7 @@ export const ChatInterface: React.FC = () => {
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisInProgress, setAnalysisInProgress] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const openRouterService = useRef(new OpenRouterService()).current;
   const googleAIService = useRef(new GoogleGenAIService()).current;
@@ -93,10 +95,17 @@ export const ChatInterface: React.FC = () => {
   };
 
   const analyzeFilesInConversation = async (files: UploadedFile[]): Promise<UploadedFile[]> => {
-    if (!fileAnalysisService.current || files.length === 0) {
+    if (!fileAnalysisService.current || files.length === 0 || analysisInProgress) {
       return files;
     }
 
+    // Check if any files need analysis
+    const filesToAnalyze = files.filter(file => !file.isAnalyzed && !file.analysis);
+    if (filesToAnalyze.length === 0) {
+      return files;
+    }
+
+    setAnalysisInProgress(true);
     setIsAnalyzing(true);
 
     // Add analysis message to conversation
@@ -104,7 +113,7 @@ export const ChatInterface: React.FC = () => {
     const analysisMessage: Message = {
       id: analysisMessageId,
       role: 'assistant',
-      content: `🧠 Analyzing ${files.length} file${files.length > 1 ? 's' : ''}...`,
+      content: `🧠 **Analyzing Files**\n\nI'm analyzing ${filesToAnalyze.length} file${filesToAnalyze.length > 1 ? 's' : ''} to better understand their content...\n\n${filesToAnalyze.map((f, i) => `${i + 1}. 📄 **${f.name}** (${f.type}, ${formatFileSize(f.size)})`).join('\n')}`,
       isLoading: true,
       timestamp: new Date(),
       model: 'file-analysis',
@@ -112,11 +121,11 @@ export const ChatInterface: React.FC = () => {
     
     setMessages(prev => [...prev, analysisMessage]);
 
-    const analyzedFiles: UploadedFile[] = [];
+    const analyzedFiles: UploadedFile[] = [...files];
     let analysisResults = '';
 
     try {
-      for (const file of files) {
+      for (const file of filesToAnalyze) {
         try {
           // Convert UploadedFile back to File object for analysis
           const fileBlob = file.content.startsWith('data:') 
@@ -127,27 +136,29 @@ export const ChatInterface: React.FC = () => {
           
           const result = await fileAnalysisService.current.analyzeFile(fileObj);
           
-          const formattedAnalysis = `--- AI File Analysis ---
+          const formattedAnalysis = `📄 **${file.name}** (${file.type}, ${formatFileSize(file.size)})
 
-**File:** ${file.name} (${file.type}, ${formatFileSize(file.size)})
+${result.analysis}
 
-${result.analysis}`;
+---`;
 
-          const analyzedFile: UploadedFile = {
-            ...file,
-            analysis: formattedAnalysis,
-            uploadedFile: result.uploadedFile
-          };
+          // Update the file in the analyzedFiles array
+          const fileIndex = analyzedFiles.findIndex(f => f.id === file.id);
+          if (fileIndex !== -1) {
+            analyzedFiles[fileIndex] = {
+              ...analyzedFiles[fileIndex],
+              analysis: formattedAnalysis,
+              uploadedFile: result.uploadedFile,
+              isAnalyzed: true
+            };
+          }
 
-          analyzedFiles.push(analyzedFile);
-          analysisResults += `\n\n${formattedAnalysis}\n\n---\n`;
+          analysisResults += `\n\n${formattedAnalysis}\n`;
 
         } catch (error) {
           console.error(`Error analyzing file ${file.name}:`, error);
           
-          const errorAnalysis = `--- AI File Analysis ---
-
-**File:** ${file.name} (${file.type}, ${formatFileSize(file.size)})
+          const errorAnalysis = `📄 **${file.name}** (${file.type}, ${formatFileSize(file.size)})
 
 ❌ **Analysis Error:** ${error instanceof Error ? error.message : 'Unknown error occurred during analysis'}
 
@@ -155,25 +166,32 @@ ${result.analysis}`;
 - Type: ${file.type || 'Unknown'}
 - Size: ${formatFileSize(file.size)}
 
-*Note: The file was uploaded but automatic analysis failed. You can still use this file in your conversation.*`;
+*Note: The file was uploaded but automatic analysis failed. You can still use this file in your conversation.*
 
-          const analyzedFile: UploadedFile = {
-            ...file,
-            analysis: errorAnalysis
-          };
+---`;
 
-          analyzedFiles.push(analyzedFile);
-          analysisResults += `\n\n${errorAnalysis}\n\n---\n`;
+          // Update the file in the analyzedFiles array
+          const fileIndex = analyzedFiles.findIndex(f => f.id === file.id);
+          if (fileIndex !== -1) {
+            analyzedFiles[fileIndex] = {
+              ...analyzedFiles[fileIndex],
+              analysis: errorAnalysis,
+              isAnalyzed: true
+            };
+          }
+
+          analysisResults += `\n\n${errorAnalysis}\n`;
         }
       }
 
       // Update the analysis message with results
       const finalAnalysisContent = `🧠 **File Analysis Complete**
 
-I've analyzed ${files.length} file${files.length > 1 ? 's' : ''} and extracted the following information:
+I've successfully analyzed ${filesToAnalyze.length} file${filesToAnalyze.length > 1 ? 's' : ''} and extracted detailed information about their content:
 
 ${analysisResults}
 
+✅ **Ready for Conversation**
 The files are now ready to be used in our conversation. You can ask me questions about their content, request modifications, or use them as context for further discussion.`;
 
       setMessages(prev => 
@@ -208,6 +226,7 @@ The files are now ready to be used in our conversation. You can ask me questions
       return files;
     } finally {
       setIsAnalyzing(false);
+      setAnalysisInProgress(false);
     }
 
     return analyzedFiles;
@@ -276,11 +295,15 @@ The files are now ready to be used in our conversation. You can ask me questions
     const now = Date.now();
     let messageContent = input;
     
-    // Create user message first (without files)
+    // Create user message with file names instead of generic "files attached"
+    const fileNames = uploadedFiles.length > 0 
+      ? uploadedFiles.map(f => f.name).join(', ')
+      : '';
+    
     const userMessage: Message = {
       id: `user-${now}`,
       role: 'user',
-      content: messageContent + (uploadedFiles.length > 0 ? `\n\n📎 ${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''} attached` : ''),
+      content: messageContent + (uploadedFiles.length > 0 ? `\n\n📎 **Files:** ${fileNames}` : ''),
       timestamp: new Date(now),
     };
 
@@ -295,9 +318,9 @@ The files are now ready to be used in our conversation. You can ask me questions
 
     // Only analyze files if they exist and haven't been analyzed yet
     let finalFiles = currentFiles;
-    if (currentFiles.length > 0 && fileAnalysisService.current) {
-      // Check if files need analysis (don't have analysis property)
-      const needsAnalysis = currentFiles.some(file => !file.analysis);
+    if (currentFiles.length > 0 && fileAnalysisService.current && !analysisInProgress) {
+      // Check if files need analysis (don't have analysis property or isAnalyzed flag)
+      const needsAnalysis = currentFiles.some(file => !file.isAnalyzed && !file.analysis);
       if (needsAnalysis) {
         finalFiles = await analyzeFilesInConversation(currentFiles);
       }
@@ -614,15 +637,23 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
               {uploadedFiles.map((file) => (
                 <div
                   key={file.id}
-                  className="flex items-center space-x-2 bg-gray-800 px-3 py-2 rounded-full text-sm border border-gray-600"
+                  className="flex items-center space-x-2 bg-gray-800 px-3 py-2 rounded-full text-sm border border-gray-600 hover:border-gray-500 transition-colors"
                 >
-                  {file.preview && (
+                  {file.preview ? (
                     <div className="w-6 h-6 rounded-full overflow-hidden">
                       <img src={file.preview} alt="" className="w-full h-full object-cover" />
                     </div>
+                  ) : (
+                    <FileText size={16} className="text-blue-400" />
                   )}
-                  <span className="text-gray-300 truncate max-w-32">{file.name}</span>
-                  <div className="w-2 h-2 bg-purple-400 rounded-full" title="Ready for analysis" />
+                  <span className="text-gray-300 truncate max-w-32" title={file.name}>
+                    {file.name}
+                  </span>
+                  {file.isAnalyzed ? (
+                    <div className="w-2 h-2 bg-green-400 rounded-full" title="Analyzed" />
+                  ) : (
+                    <div className="w-2 h-2 bg-purple-400 rounded-full" title="Ready for analysis" />
+                  )}
                   <button
                     onClick={() => setUploadedFiles(files => files.filter(f => f.id !== file.id))}
                     className="text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-colors"
@@ -634,7 +665,12 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs text-purple-400">
               <Brain size={12} />
-              <span>Files will be analyzed when you send your message</span>
+              <span>
+                {uploadedFiles.some(f => f.isAnalyzed) 
+                  ? `${uploadedFiles.filter(f => f.isAnalyzed).length} of ${uploadedFiles.length} files analyzed`
+                  : 'Files will be analyzed when you send your message'
+                }
+              </span>
             </div>
           </div>
         )}
