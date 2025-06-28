@@ -28,8 +28,9 @@ interface UploadedFile {
 }
 
 // Constants for context management
-const MAX_FILE_CONTENT_CHARS = 50000;
-const MAX_CONVERSATION_HISTORY_MESSAGES = 10;
+const MAX_FILE_CONTENT_CHARS = 10000; // Reduced from 50000
+const MAX_CONVERSATION_HISTORY_MESSAGES = 5; // Reduced from 10
+const MAX_IMAGE_SIZE = 1024 * 1024; // 1MB max for images
 
 export const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -99,6 +100,12 @@ export const ChatInterface: React.FC = () => {
 
   const handleFilesUploaded = (files: UploadedFile[]) => {
     setUploadedFiles(files);
+    // Auto-hide upload zone after files are uploaded
+    if (files.length > 0) {
+      setTimeout(() => {
+        setShowFileUpload(false);
+      }, 1000);
+    }
   };
 
   const formatFilesForMessage = (files: UploadedFile[]): string => {
@@ -130,9 +137,14 @@ export const ChatInterface: React.FC = () => {
           filesText += `[Content truncated - showing first ${MAX_FILE_CONTENT_CHARS} characters of ${file.content.length} total]\n`;
         }
       } else if (file.type.startsWith('image/')) {
-        filesText += `[Image file: ${file.name}]\n`;
-        if (provider.id === 'google' || provider.id === 'openrouter') {
-          filesText += `Image data: ${file.content}\n`;
+        // For images, only include the file name and basic info, not the data
+        filesText += `[Image file: ${file.name} - Please analyze this image if vision capabilities are available]\n`;
+        
+        // Only include image data for vision-capable models and if image is small enough
+        if ((provider.id === 'google' || provider.id === 'openrouter') && file.size < MAX_IMAGE_SIZE) {
+          filesText += `Image data available for analysis.\n`;
+        } else if (file.size >= MAX_IMAGE_SIZE) {
+          filesText += `Image too large for analysis (${formatFileSize(file.size)}). Please use a smaller image.\n`;
         }
       } else {
         filesText += `[Binary file - ${file.type}]\n`;
@@ -148,6 +160,31 @@ export const ChatInterface: React.FC = () => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const analyzeFilesWithAI = async (files: UploadedFile[]): Promise<string> => {
+    if (!fileAnalysisService.current || files.length === 0) return '';
+
+    let analysisText = '\n\n--- AI File Analysis ---\n\n';
+    
+    for (const file of files) {
+      try {
+        analysisText += `**${file.name}** (${file.type}): `;
+        
+        // Create a File object for analysis
+        const blob = new Blob([file.content], { type: file.type });
+        const fileObj = new File([blob], file.name, { type: file.type });
+        
+        const result = await fileAnalysisService.current.analyzeFile(fileObj);
+        analysisText += result.analysis + '\n\n';
+        
+      } catch (error) {
+        console.error(`Error analyzing file ${file.name}:`, error);
+        analysisText += `Failed to analyze file: ${error instanceof Error ? error.message : 'Unknown error'}\n\n`;
+      }
+    }
+    
+    return analysisText;
   };
 
   const handleWebSearch = async () => {
@@ -241,7 +278,16 @@ export const ChatInterface: React.FC = () => {
     const now = Date.now();
     let messageContent = input;
     
-    messageContent += formatFilesForMessage(uploadedFiles);
+    // Add file analysis if files are uploaded
+    if (uploadedFiles.length > 0) {
+      try {
+        const fileAnalysis = await analyzeFilesWithAI(uploadedFiles);
+        messageContent += fileAnalysis;
+      } catch (error) {
+        console.error('Error analyzing files:', error);
+        messageContent += formatFilesForMessage(uploadedFiles);
+      }
+    }
     
     const userMessage: Message = {
       id: `user-${now}`,
@@ -268,10 +314,11 @@ export const ChatInterface: React.FC = () => {
     try {
       let responseText = '';
       
+      // Use reduced conversation history to avoid context length issues
       const recentMessages = messages.slice(-MAX_CONVERSATION_HISTORY_MESSAGES);
       const conversationHistory = recentMessages.map(msg => ({ 
         role: msg.role, 
-        content: msg.content || '' 
+        content: msg.content ? msg.content.substring(0, 2000) : '' // Limit message length
       }));
       
       const currentMessages = [...conversationHistory, { role: 'user' as const, content: messageContent }];
@@ -542,7 +589,7 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
               maxFiles={5}
               maxSizeInMB={10}
               acceptedTypes={['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c']}
-              enableAnalysis={false}
+              enableAnalysis={true}
             />
           </div>
         </div>
