@@ -13,8 +13,8 @@ import { MessageBubble } from './MessageBubble';
 import { ModelSelector } from './ModelSelector';
 import { ProviderSelector } from './ProviderSelector';
 import { WelcomeScreen } from './WelcomeScreen';
-import { FileUpload } from './FileUpload';
-import { Send, Image as ImageIcon, Paperclip, X, Search } from 'lucide-react';
+import { EnhancedFileUpload } from './EnhancedFileUpload';
+import { Send, Image as ImageIcon, Paperclip, X, Globe, Sparkles, Zap } from 'lucide-react';
 import { MainWorkspace } from './MainWorkspace';
 import ImageStyleSelector from './ImageStyleSelector';
 
@@ -47,7 +47,9 @@ export const ChatInterface: React.FC = () => {
   const [imageSize, setImageSize] = useState('1-1');
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const openRouterService = useRef(new OpenRouterService()).current;
   const googleAIService = useRef(new GoogleGenAIService()).current;
@@ -73,6 +75,14 @@ export const ChatInterface: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+    }
+  }, [input]);
+
   const handleProviderChange = (newProvider: Provider) => {
     setProvider(newProvider);
     const newModel = newProvider.models[0];
@@ -83,55 +93,12 @@ export const ChatInterface: React.FC = () => {
     setModel(newModel);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
   };
 
   const handleFilesUploaded = (files: UploadedFile[]) => {
     setUploadedFiles(files);
-  };
-
-  const analyzeFilesWithAI = async (files: UploadedFile[]): Promise<string> => {
-    if (!fileAnalysisService.current || files.length === 0) return '';
-
-    try {
-      let analysisText = '\n\n--- AI File Analysis ---\n';
-      
-      for (const file of files) {
-        try {
-          let fileBlob: Blob;
-          
-          if (file.content.startsWith('data:')) {
-            const response = await fetch(file.content);
-            fileBlob = await response.blob();
-          } else {
-            fileBlob = new Blob([file.content], { type: file.type });
-          }
-          
-          const fileObj = new File([fileBlob], file.name, { type: file.type });
-          const result = await fileAnalysisService.current.analyzeFile(fileObj);
-          
-          analysisText += `\n**${file.name}** (${file.type}):\n`;
-          analysisText += `${result.analysis}\n\n`;
-          
-          if (result.fileType === 'text' && result.content) {
-            const contentPreview = result.content.length > 500 
-              ? result.content.substring(0, 500) + '...' 
-              : result.content;
-            analysisText += `**Content:**\n\`\`\`\n${contentPreview}\n\`\`\`\n\n`;
-          }
-          
-        } catch (error) {
-          console.error(`Error analyzing file ${file.name}:`, error);
-          analysisText += `\n**${file.name}**: Analysis failed - ${error instanceof Error ? error.message : 'Unknown error'}\n\n`;
-        }
-      }
-      
-      return analysisText;
-    } catch (error) {
-      console.error('Error in file analysis:', error);
-      return '\n\n--- File Analysis Error ---\nFailed to analyze files with AI.\n\n';
-    }
   };
 
   const formatFilesForMessage = (files: UploadedFile[]): string => {
@@ -163,7 +130,7 @@ export const ChatInterface: React.FC = () => {
           filesText += `[Content truncated - showing first ${MAX_FILE_CONTENT_CHARS} characters of ${file.content.length} total]\n`;
         }
       } else if (file.type.startsWith('image/')) {
-        filesText += `[Image file - Please analyze and describe this image in detail, including any text, objects, people, colors, composition, and other visual elements you can observe.]\n`;
+        filesText += `[Image file: ${file.name}]\n`;
         if (provider.id === 'google' || provider.id === 'openrouter') {
           filesText += `Image data: ${file.content}\n`;
         }
@@ -192,7 +159,7 @@ export const ChatInterface: React.FC = () => {
     const userMessage: Message = {
       id: `user-search-${now}`,
       role: 'user',
-      content: `Web search: ${input}`,
+      content: `🌐 Web search: ${input}`,
       timestamp: new Date(now),
     };
 
@@ -213,20 +180,21 @@ export const ChatInterface: React.FC = () => {
     try {
       const searchResults = await webSearchService.search(searchQuery);
       
-      let responseText = `**Web Search Results for: "${searchQuery}"**\n\n`;
+      let responseText = `## 🌐 Web Search Results for: "${searchQuery}"\n\n`;
       
       if (searchResults.results && searchResults.results.length > 0) {
         searchResults.results.forEach((result, index) => {
-          responseText += `**${index + 1}. ${result.title}**\n`;
-          responseText += `${result.snippet}\n`;
-          responseText += `🔗 [${result.url}](${result.url})\n\n`;
+          responseText += `### ${index + 1}. ${result.title}\n`;
+          responseText += `${result.snippet}\n\n`;
+          responseText += `🔗 **Source:** [${result.url}](${result.url})\n\n`;
+          responseText += `---\n\n`;
         });
         
         if (searchResults.total_results) {
-          responseText += `\n*Found ${searchResults.total_results} total results*`;
+          responseText += `\n*📊 Found ${searchResults.total_results} total results*`;
         }
       } else {
-        responseText += 'No search results found for this query.';
+        responseText += '❌ No search results found for this query.';
       }
 
       setMessages(prev => 
@@ -245,7 +213,7 @@ export const ChatInterface: React.FC = () => {
       const errorMessage: Message = {
         id: loadingMessageId,
         role: 'assistant',
-        content: `Web search failed: ${error.message}`,
+        content: `❌ Web search failed: ${error.message}`,
         isError: true,
         timestamp: new Date(),
         model: 'web-search',
@@ -259,6 +227,12 @@ export const ChatInterface: React.FC = () => {
   const handleSendMessage = async () => {
     if (!input.trim() && uploadedFiles.length === 0) return;
     
+    // If web search is enabled, perform search instead
+    if (isWebSearchEnabled && input.trim()) {
+      await handleWebSearch();
+      return;
+    }
+    
     if (provider.id === 'rapidapi') {
       handleGenerateImage();
       return;
@@ -267,22 +241,6 @@ export const ChatInterface: React.FC = () => {
     const now = Date.now();
     let messageContent = input;
     
-    // Check if user is asking for file analysis
-    const isRequestingFileAnalysis = uploadedFiles.length > 0 && (
-      input.toLowerCase().includes('analyze') ||
-      input.toLowerCase().includes('analysis') ||
-      input.toLowerCase().includes('examine') ||
-      input.toLowerCase().includes('review') ||
-      input.toLowerCase().includes('what is') ||
-      input.toLowerCase().includes('describe') ||
-      input.toLowerCase().includes('explain')
-    );
-
-    if (isRequestingFileAnalysis && fileAnalysisService.current) {
-      const analysisResult = await analyzeFilesWithAI(uploadedFiles);
-      messageContent += analysisResult;
-    }
-
     messageContent += formatFilesForMessage(uploadedFiles);
     
     const userMessage: Message = {
@@ -346,7 +304,7 @@ export const ChatInterface: React.FC = () => {
       const errorMessage: Message = {
         id: loadingMessageId,
         role: 'assistant',
-        content: `Error: ${error.message}`,
+        content: `❌ Error: ${error.message}`,
         isError: true,
         timestamp: new Date(),
         model: model.id,
@@ -365,7 +323,7 @@ export const ChatInterface: React.FC = () => {
       const errorMessage: Message = {
         id: `error-${now}`,
         role: 'assistant',
-        content: 'Please select the Image Generation provider to generate images.',
+        content: '❌ Please select the Image Generation provider to generate images.',
         timestamp: new Date(now),
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -376,7 +334,7 @@ export const ChatInterface: React.FC = () => {
     const userMessage: Message = {
       id: `user-img-${now}`,
       role: 'user',
-      content: `Image prompt: ${input}`,
+      content: `🎨 Image prompt: ${input}`,
       timestamp: new Date(now),
     };
 
@@ -422,7 +380,7 @@ export const ChatInterface: React.FC = () => {
           msg.id === loadingMessageId 
             ? { 
                 ...msg, 
-                content: isMidjourney ? 'Generated Midjourney image:' : 'Generated image:', 
+                content: isMidjourney ? '🎨 Generated Midjourney image:' : '🎨 Generated image:', 
                 images: [imageUrl],
                 isLoading: false 
               } 
@@ -434,7 +392,7 @@ export const ChatInterface: React.FC = () => {
       const errorMessage: Message = {
         id: loadingMessageId,
         role: 'assistant',
-        content: `Sorry, I encountered an error generating the image: ${error.message}`,
+        content: `❌ Sorry, I encountered an error generating the image: ${error.message}`,
         isError: true,
         timestamp: new Date(),
         model: isMidjourney ? 'rapidapi/midjourney' : 'rapidapi/flux',
@@ -518,13 +476,22 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
     }
   };
 
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white overflow-hidden main-container">
       {/* Header */}
       <div className="relative z-10 flex-shrink-0 border-b border-gray-700 bg-gray-900/95 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold">AI Chat</h1>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+              AI Chat
+            </h1>
             <div className="flex items-center space-x-3">
               <ProviderSelector
                 providers={PROVIDERS}
@@ -569,19 +536,20 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
       {showFileUpload && (
         <div className="border-t border-gray-700 bg-gray-800/95 backdrop-blur-sm">
           <div className="max-w-4xl mx-auto p-4">
-            <FileUpload
+            <EnhancedFileUpload
               onFilesUploaded={handleFilesUploaded}
               onClose={() => setShowFileUpload(false)}
               maxFiles={5}
               maxSizeInMB={10}
               acceptedTypes={['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c']}
+              enableAnalysis={false}
             />
           </div>
         </div>
       )}
 
-      {/* Input Area */}
-      <div className="p-4 border-t border-gray-700 bg-gray-900/95">
+      {/* Enhanced Input Area */}
+      <div className="p-4 border-t border-gray-700 bg-gray-900/95 backdrop-blur-sm">
         {/* Show uploaded files */}
         {uploadedFiles.length > 0 && (
           <div className="mb-3 max-w-4xl mx-auto">
@@ -589,17 +557,17 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
               {uploadedFiles.map((file) => (
                 <div
                   key={file.id}
-                  className="flex items-center space-x-2 bg-gray-800 px-3 py-2 rounded-full text-sm border border-gray-600"
+                  className="flex items-center space-x-2 bg-gray-800/70 backdrop-blur-sm px-3 py-2 rounded-full text-sm border border-gray-600/50 hover:border-gray-500/50 transition-all duration-200"
                 >
                   {file.preview && (
-                    <div className="w-6 h-6 rounded-full overflow-hidden">
+                    <div className="w-6 h-6 rounded-full overflow-hidden ring-2 ring-blue-500/30">
                       <img src={file.preview} alt="" className="w-full h-full object-cover" />
                     </div>
                   )}
-                  <span className="text-gray-300 truncate max-w-32">{file.name}</span>
+                  <span className="text-gray-300 truncate max-w-32 font-medium">{file.name}</span>
                   <button
                     onClick={() => setUploadedFiles(files => files.filter(f => f.id !== file.id))}
-                    className="text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-colors"
+                    className="text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-all duration-200"
                   >
                     <X size={14} />
                   </button>
@@ -609,43 +577,131 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
           </div>
         )}
 
-        <div className="flex items-center max-w-4xl mx-auto">
-          <button
-            onClick={() => setShowFileUpload(!showFileUpload)}
-            className={`p-3 rounded-l-lg border border-gray-700 border-r-0 transition-all duration-200 ${
-              showFileUpload || uploadedFiles.length > 0
-                ? 'bg-blue-600 text-white shadow-lg'
-                : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
-            }`}
-            title="Upload files"
-          >
-            <Paperclip size={20} />
-          </button>
-          <input
-            type="text"
-            value={input}
-            onChange={handleInputChange}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder={provider.id === 'rapidapi' ? 'Describe the image you want to generate...' : 'Type a message...'}
-            className="flex-1 p-3 bg-gray-800 border border-gray-700 border-l-0 border-r-0 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
-            disabled={isLoading || isSearching}
-          />
-          <button
-            onClick={handleWebSearch}
-            disabled={isLoading || isSearching || !input.trim()}
-            className="p-3 bg-green-600 text-white border border-gray-700 border-l-0 border-r-0 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors duration-200"
-            title="Search the web"
-          >
-            <Search size={20} />
-          </button>
-          <button
-            onClick={handleSendMessage}
-            disabled={isLoading || isSearching || (!input.trim() && uploadedFiles.length === 0)}
-            className="p-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors duration-200"
-            title="Send message"
-          >
-            {provider.id === 'rapidapi' ? <ImageIcon size={20} /> : <Send size={20} />}
-          </button>
+        {/* Enhanced Input Container */}
+        <div className="max-w-4xl mx-auto">
+          <div className="relative flex flex-col border border-white/10 rounded-2xl bg-gray-800/50 backdrop-blur-sm shadow-2xl">
+            {/* Textarea Container */}
+            <div className="overflow-y-auto">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyPress={handleKeyPress}
+                rows={1}
+                style={{ overflow: 'hidden', outline: 'none' }}
+                className="w-full px-4 py-4 resize-none bg-transparent border-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-white/50 text-white leading-relaxed min-h-[60px] max-h-[120px]"
+                placeholder={
+                  isWebSearchEnabled 
+                    ? "🌐 Search the web..." 
+                    : provider.id === 'rapidapi' 
+                      ? "🎨 Describe the image you want to generate..." 
+                      : "💬 Ask me anything..."
+                }
+                disabled={isLoading || isSearching}
+              />
+            </div>
+
+            {/* Controls Container */}
+            <div className="h-16">
+              <div className="absolute left-4 right-4 bottom-4 flex items-center justify-between">
+                {/* Left Controls */}
+                <div className="flex items-center gap-2">
+                  {/* File Upload Button */}
+                  <button
+                    onClick={() => setShowFileUpload(!showFileUpload)}
+                    className={`p-2.5 transition-all duration-200 rounded-xl border border-white/10 hover:border-white/20 ${
+                      showFileUpload || uploadedFiles.length > 0
+                        ? 'bg-blue-600/20 text-blue-400 border-blue-500/30 shadow-lg shadow-blue-500/10'
+                        : 'text-white/50 hover:text-white hover:bg-white/5'
+                    }`}
+                    title="Upload files"
+                  >
+                    <Paperclip size={18} />
+                  </button>
+
+                  {/* Web Search Toggle Button */}
+                  <button
+                    onClick={() => setIsWebSearchEnabled(!isWebSearchEnabled)}
+                    className={`p-2.5 transition-all duration-300 rounded-xl border border-white/10 hover:border-white/20 relative overflow-hidden ${
+                      isWebSearchEnabled
+                        ? 'bg-gradient-to-r from-green-600/20 to-blue-600/20 text-green-400 border-green-500/30 shadow-lg shadow-green-500/10'
+                        : 'text-white/50 hover:text-white hover:bg-white/5'
+                    }`}
+                    title={isWebSearchEnabled ? "Disable web search" : "Enable web search"}
+                  >
+                    <div className="relative">
+                      <Globe 
+                        size={18} 
+                        className={`transition-all duration-300 ${
+                          isWebSearchEnabled ? 'scale-110' : 'scale-100'
+                        }`}
+                      />
+                      {isWebSearchEnabled && (
+                        <div className="absolute -top-1 -right-1">
+                          <Sparkles size={10} className="text-green-400 animate-pulse" />
+                        </div>
+                      )}
+                    </div>
+                    {isWebSearchEnabled && (
+                      <div className="absolute inset-0 bg-gradient-to-r from-green-500/10 to-blue-500/10 animate-pulse rounded-xl" />
+                    )}
+                  </button>
+
+                  {/* Status Indicator */}
+                  {isWebSearchEnabled && (
+                    <div className="flex items-center gap-1 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-lg">
+                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                      <span className="text-xs text-green-400 font-medium">Web Search</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Send Button */}
+                <button
+                  onClick={handleSendMessage}
+                  disabled={isLoading || isSearching || (!input.trim() && uploadedFiles.length === 0)}
+                  className={`p-3 transition-all duration-200 rounded-xl flex items-center justify-center min-w-[48px] ${
+                    isLoading || isSearching || (!input.trim() && uploadedFiles.length === 0)
+                      ? 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
+                      : isWebSearchEnabled
+                        ? 'bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white shadow-lg shadow-green-500/20 hover:shadow-green-500/30 hover:scale-105'
+                        : provider.id === 'rapidapi'
+                          ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 hover:scale-105'
+                          : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 hover:scale-105'
+                  }`}
+                  title={
+                    isWebSearchEnabled 
+                      ? "Search the web" 
+                      : provider.id === 'rapidapi' 
+                        ? "Generate image" 
+                        : "Send message"
+                  }
+                >
+                  {isLoading || isSearching ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : isWebSearchEnabled ? (
+                    <Globe size={20} />
+                  ) : provider.id === 'rapidapi' ? (
+                    <ImageIcon size={20} />
+                  ) : (
+                    <Send size={20} />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Enhanced Status Bar */}
+          {(isLoading || isSearching) && (
+            <div className="mt-2 flex items-center justify-center">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/70 backdrop-blur-sm border border-gray-700/50 rounded-full">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+                <span className="text-xs text-gray-400">
+                  {isSearching ? 'Searching the web...' : 'Generating response...'}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
