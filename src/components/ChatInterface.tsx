@@ -8,12 +8,13 @@ import { OpenRouterService } from '../services/OpenRouterService';
 import { ImageGenerationService } from '../services/ImageGenerationService';
 import { MidjourneyService } from '../services/MidjourneyService';
 import { FileAnalysisService } from '../services/FileAnalysisService';
+import { WebSearchService } from '../services/WebSearchService';
 import { MessageBubble } from './MessageBubble';
 import { ModelSelector } from './ModelSelector';
 import { ProviderSelector } from './ProviderSelector';
 import { WelcomeScreen } from './WelcomeScreen';
-import { EnhancedFileUpload } from './EnhancedFileUpload';
-import { Send, Image as ImageIcon, Paperclip, X, Brain, Search } from 'lucide-react';
+import { FileUpload } from './FileUpload';
+import { Send, Image as ImageIcon, Paperclip, X, Search } from 'lucide-react';
 import { MainWorkspace } from './MainWorkspace';
 import ImageStyleSelector from './ImageStyleSelector';
 
@@ -24,12 +25,11 @@ interface UploadedFile {
   size: number;
   content: string;
   preview?: string;
-  analysis?: string;
 }
 
 // Constants for context management
-const MAX_FILE_CONTENT_CHARS = 100000;
-const MAX_CONVERSATION_HISTORY_MESSAGES = 15;
+const MAX_FILE_CONTENT_CHARS = 50000;
+const MAX_CONVERSATION_HISTORY_MESSAGES = 10;
 
 export const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -47,13 +47,14 @@ export const ChatInterface: React.FC = () => {
   const [imageSize, setImageSize] = useState('1-1');
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [isAnalyzingFiles, setIsAnalyzingFiles] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const openRouterService = useRef(new OpenRouterService()).current;
   const googleAIService = useRef(new GoogleGenAIService()).current;
   const imageGenerationService = useRef(new ImageGenerationService()).current;
   const midjourneyService = useRef(new MidjourneyService()).current;
   const fileAnalysisService = useRef<FileAnalysisService | null>(null);
+  const webSearchService = useRef(new WebSearchService()).current;
 
   // Initialize file analysis service
   useEffect(() => {
@@ -86,33 +87,24 @@ export const ChatInterface: React.FC = () => {
     setInput(e.target.value);
   };
 
-  const handleFilesUploaded = async (files: UploadedFile[]) => {
+  const handleFilesUploaded = (files: UploadedFile[]) => {
     setUploadedFiles(files);
-    
-    // Auto-analyze files when uploaded
-    if (files.length > 0 && fileAnalysisService.current) {
-      await analyzeFilesWithAI(files);
-    }
   };
 
   const analyzeFilesWithAI = async (files: UploadedFile[]): Promise<string> => {
     if (!fileAnalysisService.current || files.length === 0) return '';
 
-    setIsAnalyzingFiles(true);
     try {
       let analysisText = '\n\n--- AI File Analysis ---\n';
       
       for (const file of files) {
         try {
-          // Create a File object from the uploaded file data
           let fileBlob: Blob;
           
           if (file.content.startsWith('data:')) {
-            // Handle data URLs (images, etc.)
             const response = await fetch(file.content);
             fileBlob = await response.blob();
           } else {
-            // Handle text content
             fileBlob = new Blob([file.content], { type: file.type });
           }
           
@@ -122,7 +114,6 @@ export const ChatInterface: React.FC = () => {
           analysisText += `\n**${file.name}** (${file.type}):\n`;
           analysisText += `${result.analysis}\n\n`;
           
-          // Also include the content for text files
           if (result.fileType === 'text' && result.content) {
             const contentPreview = result.content.length > 500 
               ? result.content.substring(0, 500) + '...' 
@@ -136,32 +127,17 @@ export const ChatInterface: React.FC = () => {
         }
       }
       
-      // Auto-send analysis message
-      if (analysisText.length > 50) {
-        const now = Date.now();
-        const analysisMessage: Message = {
-          id: `analysis-${now}`,
-          role: 'assistant',
-          content: analysisText,
-          timestamp: new Date(now),
-        };
-        setMessages(prev => [...prev, analysisMessage]);
-      }
-      
       return analysisText;
     } catch (error) {
       console.error('Error in file analysis:', error);
       return '\n\n--- File Analysis Error ---\nFailed to analyze files with AI.\n\n';
-    } finally {
-      setIsAnalyzingFiles(false);
     }
   };
 
-  const formatFilesForMessage = async (files: UploadedFile[]): Promise<string> => {
+  const formatFilesForMessage = (files: UploadedFile[]): string => {
     if (files.length === 0) return '';
     
-    // Basic file information for context
-    let filesText = '\n\n--- Uploaded Files Context ---\n';
+    let filesText = '\n\n--- Uploaded Files ---\n';
     files.forEach((file, index) => {
       filesText += `\n${index + 1}. **${file.name}** (${file.type}, ${formatFileSize(file.size)})\n`;
       
@@ -187,7 +163,10 @@ export const ChatInterface: React.FC = () => {
           filesText += `[Content truncated - showing first ${MAX_FILE_CONTENT_CHARS} characters of ${file.content.length} total]\n`;
         }
       } else if (file.type.startsWith('image/')) {
-        filesText += `[Image file - Already analyzed above]\n`;
+        filesText += `[Image file - Please analyze and describe this image in detail, including any text, objects, people, colors, composition, and other visual elements you can observe.]\n`;
+        if (provider.id === 'google' || provider.id === 'openrouter') {
+          filesText += `Image data: ${file.content}\n`;
+        }
       } else {
         filesText += `[Binary file - ${file.type}]\n`;
       }
@@ -204,6 +183,79 @@ export const ChatInterface: React.FC = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const handleWebSearch = async () => {
+    if (!input.trim()) return;
+
+    setIsSearching(true);
+    const now = Date.now();
+    
+    const userMessage: Message = {
+      id: `user-search-${now}`,
+      role: 'user',
+      content: `Web search: ${input}`,
+      timestamp: new Date(now),
+    };
+
+    const loadingMessageId = `loading-search-${Date.now()}`;
+    const loadingMessage: Message = {
+      id: loadingMessageId,
+      role: 'assistant',
+      content: '',
+      isLoading: true,
+      timestamp: new Date(),
+      model: 'web-search',
+    };
+    
+    setMessages(prev => [...prev, userMessage, loadingMessage]);
+    const searchQuery = input;
+    setInput('');
+
+    try {
+      const searchResults = await webSearchService.search(searchQuery);
+      
+      let responseText = `**Web Search Results for: "${searchQuery}"**\n\n`;
+      
+      if (searchResults.results && searchResults.results.length > 0) {
+        searchResults.results.forEach((result, index) => {
+          responseText += `**${index + 1}. ${result.title}**\n`;
+          responseText += `${result.snippet}\n`;
+          responseText += `🔗 [${result.url}](${result.url})\n\n`;
+        });
+        
+        if (searchResults.total_results) {
+          responseText += `\n*Found ${searchResults.total_results} total results*`;
+        }
+      } else {
+        responseText += 'No search results found for this query.';
+      }
+
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === loadingMessageId 
+            ? { 
+                ...msg, 
+                content: responseText, 
+                isLoading: false 
+              } 
+            : msg
+        )
+      );
+    } catch (error: any) {
+      console.error('Error performing web search:', error);
+      const errorMessage: Message = {
+        id: loadingMessageId,
+        role: 'assistant',
+        content: `Web search failed: ${error.message}`,
+        isError: true,
+        timestamp: new Date(),
+        model: 'web-search',
+      };
+      setMessages(prev => [...prev.filter(msg => msg.id !== loadingMessageId), errorMessage]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!input.trim() && uploadedFiles.length === 0) return;
     
@@ -213,7 +265,25 @@ export const ChatInterface: React.FC = () => {
     }
 
     const now = Date.now();
-    const messageContent = input + await formatFilesForMessage(uploadedFiles);
+    let messageContent = input;
+    
+    // Check if user is asking for file analysis
+    const isRequestingFileAnalysis = uploadedFiles.length > 0 && (
+      input.toLowerCase().includes('analyze') ||
+      input.toLowerCase().includes('analysis') ||
+      input.toLowerCase().includes('examine') ||
+      input.toLowerCase().includes('review') ||
+      input.toLowerCase().includes('what is') ||
+      input.toLowerCase().includes('describe') ||
+      input.toLowerCase().includes('explain')
+    );
+
+    if (isRequestingFileAnalysis && fileAnalysisService.current) {
+      const analysisResult = await analyzeFilesWithAI(uploadedFiles);
+      messageContent += analysisResult;
+    }
+
+    messageContent += formatFilesForMessage(uploadedFiles);
     
     const userMessage: Message = {
       id: `user-${now}`,
@@ -234,7 +304,6 @@ export const ChatInterface: React.FC = () => {
     
     setMessages(prev => [...prev, userMessage, loadingMessage]);
     setIsLoading(true);
-    const currentInput = input;
     setInput('');
     setUploadedFiles([]);
 
@@ -391,7 +460,7 @@ export const ChatInterface: React.FC = () => {
       
       let processedCode = code;
       
-      if (lang.id === 62) { // Java
+      if (lang.id === 62) {
         if (!code.includes('public class Main')) {
           const className = code.match(/class\s+(\w+)/)?.[1] || 'Main';
           processedCode = `public class ${className} {
@@ -400,7 +469,7 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
     }
 }`;
         }
-      } else if (lang.id === 71 || lang.id === 70) { // Python
+      } else if (lang.id === 71 || lang.id === 70) {
         processedCode = code.replace(/print\s+(?![(])/g, 'print(') + '\n';
       }
       
@@ -500,13 +569,12 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
       {showFileUpload && (
         <div className="border-t border-gray-700 bg-gray-800/95 backdrop-blur-sm">
           <div className="max-w-4xl mx-auto p-4">
-            <EnhancedFileUpload
+            <FileUpload
               onFilesUploaded={handleFilesUploaded}
               onClose={() => setShowFileUpload(false)}
               maxFiles={5}
               maxSizeInMB={10}
               acceptedTypes={['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c']}
-              enableAnalysis={true}
             />
           </div>
         </div>
@@ -529,9 +597,6 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
                     </div>
                   )}
                   <span className="text-gray-300 truncate max-w-32">{file.name}</span>
-                  {isAnalyzingFiles && (
-                    <Brain size={14} className="text-purple-400 animate-pulse" />
-                  )}
                   <button
                     onClick={() => setUploadedFiles(files => files.filter(f => f.id !== file.id))}
                     className="text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-colors"
@@ -563,11 +628,19 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
             onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
             placeholder={provider.id === 'rapidapi' ? 'Describe the image you want to generate...' : 'Type a message...'}
             className="flex-1 p-3 bg-gray-800 border border-gray-700 border-l-0 border-r-0 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
-            disabled={isLoading || isAnalyzingFiles}
+            disabled={isLoading || isSearching}
           />
           <button
+            onClick={handleWebSearch}
+            disabled={isLoading || isSearching || !input.trim()}
+            className="p-3 bg-green-600 text-white border border-gray-700 border-l-0 border-r-0 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors duration-200"
+            title="Search the web"
+          >
+            <Search size={20} />
+          </button>
+          <button
             onClick={handleSendMessage}
-            disabled={isLoading || isAnalyzingFiles || (!input.trim() && uploadedFiles.length === 0)}
+            disabled={isLoading || isSearching || (!input.trim() && uploadedFiles.length === 0)}
             className="p-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors duration-200"
             title="Send message"
           >
