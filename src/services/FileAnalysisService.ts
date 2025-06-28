@@ -24,51 +24,43 @@ export class FileAnalysisService {
     try {
       console.log('Starting file analysis for:', file.name);
       
-      // For text-based files, read content directly
-      if (this.isTextFile(file)) {
-        const fileContent = await this.readTextFile(file);
-        const analysis = await this.googleAIService.analyzeFileContent(
-          fileContent, 
-          file.name, 
-          prompt
-        );
-        
-        return {
-          content: fileContent,
-          fileType: 'text',
-          analysis
-        };
-      }
-
-      // For images, use vision analysis
-      if (this.isImageFile(file)) {
-        const imageData = await this.readFileAsDataURL(file);
-        const analysis = await this.googleAIService.analyzeImageFile(
-          imageData,
-          file.name,
-          file.type,
-          prompt
-        );
-        
-        return {
-          content: '', // Binary content not readable as text
-          fileType: 'image',
-          analysis
-        };
-      }
-
-      // For other file types, provide basic analysis
-      const basicAnalysis = await this.analyzeGenericFile(file, prompt);
+      // Use the new file upload API for all file types
+      const analysis = await this.googleAIService.analyzeFileContent(file, prompt);
       
+      // Determine file type
+      let fileType = 'binary';
+      if (this.isTextFile(file)) {
+        fileType = 'text';
+      } else if (this.isImageFile(file)) {
+        fileType = 'image';
+      } else if (this.isPDFFile(file)) {
+        fileType = 'pdf';
+      } else if (this.isDocumentFile(file)) {
+        fileType = 'document';
+      }
+
       return {
-        content: '',
-        fileType: 'binary',
-        analysis: basicAnalysis
+        content: '', // Content is handled by the upload API
+        fileType,
+        analysis
       };
 
     } catch (error) {
       console.error('Error analyzing file:', error);
       throw new Error(`Failed to analyze file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Analyze multiple files together
+   */
+  async analyzeMultipleFiles(files: File[], prompt?: string): Promise<string> {
+    try {
+      console.log('Starting analysis for multiple files:', files.map(f => f.name));
+      return await this.googleAIService.analyzeMultipleFiles(files, prompt);
+    } catch (error) {
+      console.error('Error analyzing multiple files:', error);
+      throw new Error(`Failed to analyze files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -103,105 +95,46 @@ export class FileAnalysisService {
   }
 
   /**
-   * Read text file content
+   * Check if file is a PDF
    */
-  private readTextFile(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsText(file);
-    });
+  private isPDFFile(file: File): boolean {
+    return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
   }
 
   /**
-   * Read file as data URL
+   * Check if file is a document
    */
-  private readFileAsDataURL(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  private isDocumentFile(file: File): boolean {
+    const documentTypes = [
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ];
+
+    const documentExtensions = [
+      '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp'
+    ];
+
+    return documentTypes.some(type => file.type === type) ||
+           documentExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
   }
 
   /**
-   * Analyze generic/binary files
-   */
-  private async analyzeGenericFile(file: File, prompt?: string): Promise<string> {
-    const fileInfo = {
-      name: file.name,
-      type: file.type || 'unknown',
-      size: file.size,
-      lastModified: new Date(file.lastModified).toISOString()
-    };
-
-    const defaultPrompt = `Please analyze this file based on its metadata:
-
-File Information:
-- Name: ${fileInfo.name}
-- Type: ${fileInfo.type}
-- Size: ${this.formatFileSize(fileInfo.size)}
-- Last Modified: ${fileInfo.lastModified}
-
-Please provide:
-1. **File Type Analysis**: What type of file this likely is based on extension and MIME type
-2. **Likely Content and Purpose**: What this file probably contains and its purpose
-3. **Common Use Cases**: How this file type is typically used
-4. **Recommended Tools**: What software or tools can open/edit this file
-5. **Security Considerations**: Any security aspects to be aware of
-6. **Additional Insights**: Any other relevant information about this file type`;
-
-    const analysisPrompt = prompt || defaultPrompt;
-
-    try {
-      const messages = [{ role: 'user' as const, content: analysisPrompt }];
-      return await this.googleAIService.generateText(messages);
-    } catch (error) {
-      console.error('Error analyzing generic file:', error);
-      return `Basic file analysis for ${file.name}:
-- File type: ${file.type || 'Unknown'}
-- Size: ${this.formatFileSize(file.size)}
-- Extension: ${file.name.split('.').pop()?.toUpperCase() || 'None'}
-- Last modified: ${new Date(file.lastModified).toLocaleString()}
-
-This appears to be a ${file.type || 'binary'} file. For detailed analysis, please ensure your Google AI API key is properly configured.`;
-    }
-  }
-
-  /**
-   * Format file size for display
-   */
-  private formatFileSize(bytes: number): string {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
-
-  /**
-   * Extract text from various file types
+   * Extract text from various file types using AI
    */
   async extractText(file: File): Promise<string> {
-    if (this.isTextFile(file)) {
-      return await this.readTextFile(file);
-    }
-
-    if (this.isImageFile(file)) {
-      // Use OCR capabilities
-      const imageData = await this.readFileAsDataURL(file);
-      const analysis = await this.googleAIService.analyzeImageFile(
-        imageData,
-        file.name,
-        file.type,
-        "Extract all text content from this image using OCR. Return only the extracted text without additional commentary."
+    try {
+      const result = await this.analyzeFile(file, 
+        "Extract all text content from this file. Return only the extracted text without additional commentary or analysis."
       );
-      return analysis;
+      return result.analysis;
+    } catch (error) {
+      console.error('Error extracting text:', error);
+      throw new Error(`Text extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    throw new Error('Text extraction not supported for this file type');
   }
 
   /**
@@ -216,7 +149,20 @@ This appears to be a ${file.type || 'binary'} file. For detailed analysis, pleas
       lastModified: new Date(file.lastModified),
       isText: this.isTextFile(file),
       isImage: this.isImageFile(file),
+      isPDF: this.isPDFFile(file),
+      isDocument: this.isDocumentFile(file),
       extension: file.name.split('.').pop()?.toLowerCase() || ''
     };
+  }
+
+  /**
+   * Format file size for display
+   */
+  private formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 }
