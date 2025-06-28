@@ -88,7 +88,7 @@ export const ChatInterface: React.FC = () => {
   };
 
   const handleFilesUploaded = (files: UploadedFile[]) => {
-    // Just store the files without analyzing them
+    // Just store the files without analyzing them - analysis happens only when sending
     setUploadedFiles(files);
   };
 
@@ -287,16 +287,20 @@ The files are now ready to be used in our conversation. You can ask me questions
     // Add user message to conversation immediately
     setMessages(prev => [...prev, userMessage]);
     
-    // Clear input and files immediately
+    // Clear input and files immediately to prevent re-processing
     const currentInput = input;
     const currentFiles = [...uploadedFiles];
     setInput('');
     setUploadedFiles([]);
 
-    // Now analyze files if they exist (this will add a separate analysis message)
+    // Only analyze files if they exist and haven't been analyzed yet
     let finalFiles = currentFiles;
     if (currentFiles.length > 0 && fileAnalysisService.current) {
-      finalFiles = await analyzeFilesInConversation(currentFiles);
+      // Check if files need analysis (don't have analysis property)
+      const needsAnalysis = currentFiles.some(file => !file.analysis);
+      if (needsAnalysis) {
+        finalFiles = await analyzeFilesInConversation(currentFiles);
+      }
     }
     
     // Create loading message for AI response
