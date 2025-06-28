@@ -50,7 +50,6 @@ export const ChatInterface: React.FC = () => {
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisInProgress, setAnalysisInProgress] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const openRouterService = useRef(new OpenRouterService()).current;
   const googleAIService = useRef(new GoogleGenAIService()).current;
@@ -90,12 +89,11 @@ export const ChatInterface: React.FC = () => {
   };
 
   const handleFilesUploaded = (files: UploadedFile[]) => {
-    // Just store the files without analyzing them - analysis happens only when sending
     setUploadedFiles(files);
   };
 
   const analyzeFilesInConversation = async (files: UploadedFile[]): Promise<UploadedFile[]> => {
-    if (!fileAnalysisService.current || files.length === 0 || analysisInProgress) {
+    if (!fileAnalysisService.current || files.length === 0) {
       return files;
     }
 
@@ -105,7 +103,6 @@ export const ChatInterface: React.FC = () => {
       return files;
     }
 
-    setAnalysisInProgress(true);
     setIsAnalyzing(true);
 
     // Add analysis message to conversation
@@ -226,7 +223,6 @@ The files are now ready to be used in our conversation. You can ask me questions
       return files;
     } finally {
       setIsAnalyzing(false);
-      setAnalysisInProgress(false);
     }
 
     return analyzedFiles;
@@ -292,6 +288,9 @@ The files are now ready to be used in our conversation. You can ask me questions
       return;
     }
 
+    // Prevent multiple simultaneous operations
+    if (isLoading || isAnalyzing) return;
+
     const now = Date.now();
     let messageContent = input;
     
@@ -310,23 +309,24 @@ The files are now ready to be used in our conversation. You can ask me questions
     // Add user message to conversation immediately
     setMessages(prev => [...prev, userMessage]);
     
-    // Clear input and files immediately to prevent re-processing
+    // Clear input and store current files
     const currentInput = input;
     const currentFiles = [...uploadedFiles];
     setInput('');
     setUploadedFiles([]);
 
-    // Only analyze files if they exist and haven't been analyzed yet
+    // Step 1: Analyze files if needed (this will add its own message)
     let finalFiles = currentFiles;
-    if (currentFiles.length > 0 && fileAnalysisService.current && !analysisInProgress) {
-      // Check if files need analysis (don't have analysis property or isAnalyzed flag)
+    if (currentFiles.length > 0 && fileAnalysisService.current) {
       const needsAnalysis = currentFiles.some(file => !file.isAnalyzed && !file.analysis);
       if (needsAnalysis) {
         finalFiles = await analyzeFilesInConversation(currentFiles);
+        // Wait a moment for the analysis message to be displayed
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
     
-    // Create loading message for AI response
+    // Step 2: Generate AI response (only after analysis is complete)
     const loadingMessageId = `loading-${Date.now()}`;
     const loadingMessage: Message = {
       id: loadingMessageId,
