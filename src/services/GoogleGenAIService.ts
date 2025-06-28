@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, createUserContent, createPartFromUri } from "@google/generative-ai";
 
 type GenerateContentOptions = {
   model?: string;
@@ -22,7 +22,38 @@ export class GoogleGenAIService {
       throw new Error('Google Generative AI API key is required. Please set VITE_GOOGLE_GENAI_API_KEY in your .env file');
     }
     
-    this.ai = new GoogleGenerativeAI(apiKeyToUse);
+    this.ai = new GoogleGenerativeAI({ apiKey: apiKeyToUse });
+  }
+
+  /**
+   * Upload a file to Google AI and get file URI
+   * @param file The file to upload
+   * @returns Promise that resolves to the uploaded file info
+   */
+  async uploadFile(file: File): Promise<{ uri: string; mimeType: string; name: string }> {
+    try {
+      console.log('Uploading file to Google AI:', file.name);
+      
+      // Convert File to the format expected by Google AI
+      const uploadedFile = await this.ai.files.upload({
+        file: file,
+        config: { 
+          mimeType: file.type || 'application/octet-stream',
+          displayName: file.name
+        },
+      });
+
+      console.log('File uploaded successfully:', uploadedFile);
+      
+      return {
+        uri: uploadedFile.uri,
+        mimeType: uploadedFile.mimeType,
+        name: uploadedFile.name || file.name
+      };
+    } catch (error) {
+      console.error('Error uploading file to Google AI:', error);
+      throw new Error(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   /**
@@ -68,6 +99,43 @@ export class GoogleGenAIService {
   }
 
   /**
+   * Generate content with uploaded files
+   * @param prompt The text prompt
+   * @param uploadedFiles Array of uploaded file info
+   * @param model Optional model override
+   * @returns Generated text
+   */
+  async generateContentWithFiles(
+    prompt: string, 
+    uploadedFiles: { uri: string; mimeType: string; name: string }[], 
+    model?: string
+  ): Promise<string> {
+    try {
+      const genModel = this.ai.getGenerativeModel({
+        model: model || this.defaultModel,
+      });
+
+      // Create content parts for files and text
+      const parts = [
+        ...uploadedFiles.map(file => createPartFromUri(file.uri, file.mimeType)),
+        prompt
+      ];
+
+      const contents = createUserContent(parts);
+      
+      const result = await genModel.generateContent({
+        contents: [contents]
+      });
+      
+      const response = await result.response;
+      return response.text();
+    } catch (error) {
+      console.error('Error generating content with files:', error);
+      throw new Error(`Failed to generate content with files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
    * Generate text using a simple interface
    * @param prompt The prompt to generate text from
    * @param model Optional model override
@@ -86,14 +154,49 @@ export class GoogleGenAIService {
   }
 
   /**
-   * Analyze file content with AI
+   * Analyze file content with AI using uploaded file
+   * @param uploadedFile The uploaded file info
+   * @param prompt Optional custom prompt
+   * @returns Analysis result
+   */
+  async analyzeUploadedFile(
+    uploadedFile: { uri: string; mimeType: string; name: string }, 
+    prompt?: string
+  ): Promise<string> {
+    const defaultPrompt = `--- AI File Analysis ---
+
+Please provide a comprehensive analysis of this file including:
+
+1. **File Type and Format**: Identify the file type, format, and encoding
+2. **Main Content Summary**: Summarize the key content and purpose  
+3. **Key Information Extracted**: Extract important data, patterns, or insights
+4. **Structure and Organization**: Describe how the content is organized
+5. **Notable Patterns or Insights**: Identify any interesting patterns, anomalies, or insights
+6. **Potential Use Cases or Applications**: Suggest how this file might be used
+
+File: ${uploadedFile.name}`;
+
+    const analysisPrompt = prompt || defaultPrompt;
+
+    try {
+      return await this.generateContentWithFiles(analysisPrompt, [uploadedFile]);
+    } catch (error) {
+      console.error('Error analyzing uploaded file:', error);
+      throw new Error(`Failed to analyze file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Analyze file content with AI (legacy method for backward compatibility)
    * @param fileContent The content of the file
    * @param fileName The name of the file
    * @param prompt Optional custom prompt
    * @returns Analysis result
    */
   async analyzeFileContent(fileContent: string, fileName: string, prompt?: string): Promise<string> {
-    const defaultPrompt = `Please provide a comprehensive analysis of this file including:
+    const defaultPrompt = `--- AI File Analysis ---
+
+Please provide a comprehensive analysis of this file including:
 
 1. **File Type and Format**: Identify the file type, format, and encoding
 2. **Main Content Summary**: Summarize the key content and purpose
@@ -120,14 +223,16 @@ ${fileContent}`;
   }
 
   /**
-   * Analyze image file with AI vision capabilities
+   * Analyze image file with AI vision capabilities (legacy method)
    * @param imageData Base64 image data
    * @param fileName The name of the file
    * @param prompt Optional custom prompt
    * @returns Analysis result
    */
   async analyzeImageFile(imageData: string, fileName: string, prompt?: string): Promise<string> {
-    const defaultPrompt = `Please analyze this image and provide:
+    const defaultPrompt = `--- AI File Analysis ---
+
+Please analyze this image and provide:
 
 1. **Detailed Description**: Describe what you see in the image
 2. **Objects and Elements**: List all objects, people, text, and elements present
@@ -160,6 +265,35 @@ Image file: ${fileName}`;
     } catch (error) {
       console.error('Error analyzing image:', error);
       throw new Error(`Failed to analyze image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * List uploaded files
+   * @returns Promise that resolves to list of uploaded files
+   */
+  async listFiles(): Promise<any[]> {
+    try {
+      const files = await this.ai.files.list();
+      return files.files || [];
+    } catch (error) {
+      console.error('Error listing files:', error);
+      throw new Error(`Failed to list files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Delete an uploaded file
+   * @param fileName The name of the file to delete
+   * @returns Promise that resolves when file is deleted
+   */
+  async deleteFile(fileName: string): Promise<void> {
+    try {
+      await this.ai.files.delete(fileName);
+      console.log('File deleted successfully:', fileName);
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 }

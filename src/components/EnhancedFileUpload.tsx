@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, X, File, Image, FileText, Code, Eye, Brain, Download } from 'lucide-react';
+import { Upload, X, File, Image, FileText, Code, Eye, Brain, Download, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
 import { FileAnalysisService } from '../services/FileAnalysisService';
 
 interface UploadedFile {
@@ -11,6 +11,8 @@ interface UploadedFile {
   preview?: string;
   analysis?: string;
   metadata?: any;
+  uploadedFile?: { uri: string; mimeType: string; name: string };
+  analysisStatus?: 'pending' | 'analyzing' | 'completed' | 'error';
 }
 
 interface EnhancedFileUploadProps {
@@ -21,21 +23,22 @@ interface EnhancedFileUploadProps {
   className?: string;
   onClose?: () => void;
   enableAnalysis?: boolean;
+  autoAnalyze?: boolean;
 }
 
 export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
   onFilesUploaded,
   maxFiles = 5,
   maxSizeInMB = 10,
-  acceptedTypes = ['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c'],
+  acceptedTypes = ['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c', '.mp3', '.mp4', '.wav'],
   className = '',
   onClose,
-  enableAnalysis = true
+  enableAnalysis = true,
+  autoAnalyze = false
 }) => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
   const [analysisResults, setAnalysisResults] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileAnalysisService = useRef<FileAnalysisService | null>(null);
@@ -55,6 +58,8 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
 
   const getFileIcon = (type: string, name: string) => {
     if (type.startsWith('image/')) return <Image size={16} className="text-blue-500" />;
+    if (type.startsWith('audio/')) return <div className="w-4 h-4 bg-green-500 rounded-full" />;
+    if (type.startsWith('video/')) return <div className="w-4 h-4 bg-red-500 rounded-full" />;
     if (type.includes('text') || type.includes('json') || type.includes('csv') || name.endsWith('.md')) 
       return <FileText size={16} className="text-green-500" />;
     if (type.includes('javascript') || type.includes('typescript') || name.endsWith('.py') || name.endsWith('.java')) 
@@ -88,6 +93,7 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
       
       reader.onerror = () => reject(new Error('Failed to read file'));
       
+      // For text files, read as text
       if (file.type.startsWith('text/') || 
           file.type.includes('json') || 
           file.type.includes('csv') ||
@@ -104,6 +110,7 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
           file.name.endsWith('.c')) {
         reader.readAsText(file);
       } else {
+        // For binary files (images, audio, video, etc.), read as data URL
         reader.readAsDataURL(file);
       }
     });
@@ -113,21 +120,53 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
     const analysisService = getAnalysisService();
     if (!analysisService || !enableAnalysis) return;
 
-    setIsAnalyzing(fileId);
+    // Update file status to analyzing
+    setUploadedFiles(prev => prev.map(f => 
+      f.id === fileId ? { ...f, analysisStatus: 'analyzing' } : f
+    ));
+
     try {
       const result = await analysisService.analyzeFile(file);
+      
+      // Format the analysis with proper header
+      const formattedAnalysis = `--- AI File Analysis ---
+
+${file.name} (${file.type}): ${result.analysis}`;
+
       setAnalysisResults(prev => ({
         ...prev,
-        [fileId]: result.analysis
+        [fileId]: formattedAnalysis
       }));
+
+      // Update file status to completed
+      setUploadedFiles(prev => prev.map(f => 
+        f.id === fileId ? { 
+          ...f, 
+          analysisStatus: 'completed',
+          analysis: formattedAnalysis,
+          uploadedFile: result.uploadedFile
+        } : f
+      ));
+
     } catch (error) {
       console.error('File analysis failed:', error);
+      const errorAnalysis = `--- AI File Analysis ---
+
+Error analyzing file ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      
       setAnalysisResults(prev => ({
         ...prev,
-        [fileId]: `Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        [fileId]: errorAnalysis
       }));
-    } finally {
-      setIsAnalyzing(null);
+
+      // Update file status to error
+      setUploadedFiles(prev => prev.map(f => 
+        f.id === fileId ? { 
+          ...f, 
+          analysisStatus: 'error',
+          analysis: errorAnalysis
+        } : f
+      ));
     }
   };
 
@@ -159,6 +198,7 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
           size: file.size,
           content,
           preview: file.type.startsWith('image/') ? content : undefined,
+          analysisStatus: enableAnalysis ? 'pending' : undefined,
           metadata: {
             lastModified: file.lastModified,
             extension: file.name.split('.').pop()?.toLowerCase() || ''
@@ -167,9 +207,9 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
 
         newFiles.push(uploadedFile);
 
-        // Start analysis in background if enabled
-        if (enableAnalysis) {
-          analyzeFile(file, fileId);
+        // Start analysis automatically if enabled
+        if (enableAnalysis && autoAnalyze) {
+          setTimeout(() => analyzeFile(file, fileId), 100);
         }
       }
 
@@ -246,13 +286,26 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const getStatusIcon = (status?: string) => {
+    switch (status) {
+      case 'analyzing':
+        return <Brain size={14} className="text-purple-400 animate-pulse" />;
+      case 'completed':
+        return <CheckCircle size={14} className="text-green-400" />;
+      case 'error':
+        return <AlertCircle size={14} className="text-red-400" />;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className={`enhanced-file-upload-container ${className}`}>
       {/* Upload Area */}
       <div
-        className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 cursor-pointer ${
+        className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-300 cursor-pointer ${
           isDragOver
-            ? 'border-blue-500 bg-blue-500/10 scale-105'
+            ? 'border-blue-500 bg-blue-500/10 scale-105 shadow-lg shadow-blue-500/20'
             : 'border-gray-600 hover:border-gray-500 hover:bg-gray-800/30'
         } ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
         onDragOver={handleDragOver}
@@ -270,31 +323,37 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
         />
         
         <div className="flex flex-col items-center space-y-4">
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors ${
-            isDragOver ? 'bg-blue-500/20' : 'bg-gray-700'
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 ${
+            isDragOver ? 'bg-blue-500/20 scale-110' : 'bg-gray-700'
           }`}>
-            <Upload className={`w-8 h-8 ${isDragOver ? 'text-blue-400' : 'text-gray-400'}`} />
+            <Upload className={`w-10 h-10 ${isDragOver ? 'text-blue-400' : 'text-gray-400'}`} />
           </div>
           
           <div className="text-center">
             {isUploading ? (
-              <div className="space-y-2">
-                <div className="text-blue-400 font-medium">Processing files...</div>
-                <div className="w-32 h-1 bg-gray-700 rounded-full mx-auto overflow-hidden">
-                  <div className="h-full bg-blue-500 rounded-full animate-pulse"></div>
+              <div className="space-y-3">
+                <div className="text-blue-400 font-medium text-lg">Processing files...</div>
+                <div className="w-40 h-2 bg-gray-700 rounded-full mx-auto overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="text-lg font-medium text-gray-200">
-                  {isDragOver ? 'Drop files here' : 'Upload & Analyze Files'}
+              <div className="space-y-3">
+                <div className="text-xl font-medium text-gray-200">
+                  {isDragOver ? '🎯 Drop files here' : '📁 Upload & Analyze Files'}
                 </div>
                 <div className="text-sm text-gray-400">
                   <span className="font-medium text-blue-400">Click to browse</span> or drag and drop
                 </div>
                 <div className="text-xs text-gray-500">
-                  Images, documents, code files • Max {maxFiles} files, {maxSizeInMB}MB each
-                  {enableAnalysis && <div className="text-purple-400 mt-1">✨ AI analysis enabled</div>}
+                  Images, documents, code, audio, video • Max {maxFiles} files, {maxSizeInMB}MB each
+                  {enableAnalysis && (
+                    <div className="flex items-center justify-center gap-1 text-purple-400 mt-2">
+                      <Sparkles size={12} />
+                      <span>AI analysis powered by Google Gemini</span>
+                      <Sparkles size={12} />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -305,13 +364,18 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
       {/* Uploaded Files List */}
       {uploadedFiles.length > 0 && (
         <div className="mt-6">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-medium text-gray-300">
-              Uploaded Files ({uploadedFiles.length})
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-sm font-medium text-gray-300 flex items-center gap-2">
+              📁 Uploaded Files ({uploadedFiles.length})
+              {enableAnalysis && (
+                <span className="text-xs text-purple-400 bg-purple-500/10 px-2 py-1 rounded-full">
+                  AI Analysis Ready
+                </span>
+              )}
             </h4>
             <button
               onClick={clearAllFiles}
-              className="text-xs text-red-400 hover:text-red-300 transition-colors"
+              className="text-xs text-red-400 hover:text-red-300 transition-colors px-2 py-1 rounded hover:bg-red-500/10"
             >
               Clear All
             </button>
@@ -321,11 +385,11 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
             {uploadedFiles.map((file) => (
               <div
                 key={file.id}
-                className="flex flex-col p-4 bg-gray-800/50 border border-gray-700 rounded-lg hover:bg-gray-800/70 transition-colors"
+                className="flex flex-col p-4 bg-gray-800/50 border border-gray-700 rounded-xl hover:bg-gray-800/70 transition-all duration-200 file-item"
               >
                 <div className="flex items-center space-x-3">
                   {file.preview ? (
-                    <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                    <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 ring-2 ring-blue-500/30">
                       <img
                         src={file.preview}
                         alt={file.name}
@@ -339,77 +403,87 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
                   )}
                   
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-200 truncate">
+                    <div className="text-sm font-medium text-gray-200 truncate flex items-center gap-2">
                       {file.name}
+                      {getStatusIcon(file.analysisStatus)}
                     </div>
-                    <div className="text-xs text-gray-400">
+                    <div className="text-xs text-gray-400 flex items-center gap-2">
                       {formatFileSize(file.size)} • {file.type.split('/')[1]?.toUpperCase() || 'FILE'}
+                      {file.analysisStatus === 'analyzing' && (
+                        <span className="text-purple-400">Analyzing...</span>
+                      )}
+                      {file.analysisStatus === 'completed' && (
+                        <span className="text-green-400">✓ Analyzed</span>
+                      )}
                     </div>
                   </div>
                   
                   <div className="flex items-center space-x-2">
                     {enableAnalysis && (
                       <>
-                        {isAnalyzing === file.id ? (
+                        {file.analysisStatus === 'analyzing' ? (
                           <div className="flex items-center space-x-1 text-purple-400">
                             <Brain size={14} className="animate-pulse" />
                             <span className="text-xs">Analyzing...</span>
                           </div>
-                        ) : analysisResults[file.id] ? (
+                        ) : file.analysisStatus === 'completed' && analysisResults[file.id] ? (
                           <div className="flex items-center space-x-1">
                             <button
                               onClick={() => {
                                 const analysis = analysisResults[file.id];
                                 if (analysis) {
                                   const modal = document.createElement('div');
-                                  modal.className = 'fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4';
+                                  modal.className = 'fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 analysis-modal';
                                   modal.innerHTML = `
-                                    <div class="bg-gray-800 rounded-lg max-w-4xl max-h-[80vh] overflow-auto p-6">
+                                    <div class="bg-gray-800 rounded-xl max-w-4xl max-h-[80vh] overflow-auto p-6 border border-gray-700">
                                       <div class="flex justify-between items-center mb-4">
-                                        <h3 class="text-lg font-semibold text-white">Analysis: ${file.name}</h3>
-                                        <button class="text-gray-400 hover:text-white" onclick="this.closest('.fixed').remove()">
+                                        <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+                                          <span class="text-purple-400">🧠</span>
+                                          AI Analysis: ${file.name}
+                                        </h3>
+                                        <button class="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-700" onclick="this.closest('.fixed').remove()">
                                           <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
                                             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
                                           </svg>
                                         </button>
                                       </div>
-                                      <div class="text-gray-300 whitespace-pre-wrap">${analysis}</div>
+                                      <div class="text-gray-300 whitespace-pre-wrap font-mono text-sm leading-relaxed">${analysis}</div>
                                     </div>
                                   `;
                                   document.body.appendChild(modal);
                                 }
                               }}
-                              className="p-1.5 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded transition-colors"
+                              className="p-2 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-all duration-200 btn-hover-scale"
                               title="View analysis"
                             >
                               <Eye size={14} />
                             </button>
                             <button
                               onClick={() => downloadAnalysis(file.name, analysisResults[file.id])}
-                              className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded transition-colors"
+                              className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-all duration-200 btn-hover-scale"
                               title="Download analysis"
                             >
                               <Download size={14} />
                             </button>
                           </div>
-                        ) : (
+                        ) : file.analysisStatus !== 'analyzing' ? (
                           <button
                             onClick={() => {
                               const fileObj = new File([file.content], file.name, { type: file.type });
                               analyzeFile(fileObj, file.id);
                             }}
-                            className="p-1.5 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 rounded transition-colors"
+                            className="p-2 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition-all duration-200 btn-hover-scale"
                             title="Analyze file"
                           >
                             <Brain size={14} />
                           </button>
-                        )}
+                        ) : null}
                       </>
                     )}
                     
                     <button
                       onClick={() => removeFile(file.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                      className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all duration-200 btn-hover-scale"
                       title="Remove file"
                     >
                       <X size={14} />
@@ -418,11 +492,14 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
                 </div>
 
                 {/* Show analysis preview if available */}
-                {analysisResults[file.id] && (
-                  <div className="mt-3 pt-3 border-t border-gray-700">
-                    <div className="text-xs text-purple-400 mb-1">AI Analysis Preview:</div>
+                {file.analysisStatus === 'completed' && analysisResults[file.id] && (
+                  <div className="mt-3 pt-3 border-t border-gray-700 analysis-preview rounded-lg p-3">
+                    <div className="text-xs text-purple-400 mb-2 flex items-center gap-1">
+                      <Sparkles size={12} />
+                      AI Analysis Preview:
+                    </div>
                     <div className="text-xs text-gray-400 line-clamp-2">
-                      {analysisResults[file.id].substring(0, 150)}...
+                      {analysisResults[file.id].substring(0, 200)}...
                     </div>
                   </div>
                 )}

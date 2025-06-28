@@ -25,6 +25,8 @@ interface UploadedFile {
   size: number;
   content: string;
   preview?: string;
+  analysis?: string;
+  uploadedFile?: { uri: string; mimeType: string; name: string };
 }
 
 // Constants for context management
@@ -108,34 +110,37 @@ export const ChatInterface: React.FC = () => {
     files.forEach((file, index) => {
       filesText += `\n${index + 1}. **${file.name}** (${file.type}, ${formatFileSize(file.size)})\n`;
       
-      if (file.type.startsWith('text/') || 
-          file.type.includes('json') || 
-          file.type.includes('csv') ||
-          file.name.endsWith('.md') ||
-          file.name.endsWith('.txt') ||
-          file.name.endsWith('.json') ||
-          file.name.endsWith('.csv')) {
-        
-        let content = file.content;
-        let truncated = false;
-        
-        if (content.length > MAX_FILE_CONTENT_CHARS) {
-          content = content.substring(0, MAX_FILE_CONTENT_CHARS);
-          truncated = true;
-        }
-        
-        filesText += `Content:\n\`\`\`\n${content}\n\`\`\`\n`;
-        
-        if (truncated) {
-          filesText += `[Content truncated - showing first ${MAX_FILE_CONTENT_CHARS} characters of ${file.content.length} total]\n`;
-        }
-      } else if (file.type.startsWith('image/')) {
-        filesText += `[Image file: ${file.name}]\n`;
-        if (provider.id === 'google' || provider.id === 'openrouter') {
-          filesText += `Image data: ${file.content}\n`;
-        }
+      // Show analysis if available
+      if (file.analysis) {
+        filesText += `\n${file.analysis}\n\n`;
       } else {
-        filesText += `[Binary file - ${file.type}]\n`;
+        // For text files, include content
+        if (file.type.startsWith('text/') || 
+            file.type.includes('json') || 
+            file.type.includes('csv') ||
+            file.name.endsWith('.md') ||
+            file.name.endsWith('.txt') ||
+            file.name.endsWith('.json') ||
+            file.name.endsWith('.csv')) {
+          
+          let content = file.content;
+          let truncated = false;
+          
+          if (content.length > MAX_FILE_CONTENT_CHARS) {
+            content = content.substring(0, MAX_FILE_CONTENT_CHARS);
+            truncated = true;
+          }
+          
+          filesText += `Content:\n\`\`\`\n${content}\n\`\`\`\n`;
+          
+          if (truncated) {
+            filesText += `[Content truncated - showing first ${MAX_FILE_CONTENT_CHARS} characters of ${file.content.length} total]\n`;
+          }
+        } else if (file.type.startsWith('image/')) {
+          filesText += `[Image file: ${file.name}]\n`;
+        } else {
+          filesText += `[File: ${file.name} - ${file.type}]\n`;
+        }
       }
     });
     
@@ -241,6 +246,69 @@ export const ChatInterface: React.FC = () => {
     const now = Date.now();
     let messageContent = input;
     
+    // Check if we have files with Google AI uploads
+    const filesWithUploads = uploadedFiles.filter(f => f.uploadedFile);
+    
+    if (filesWithUploads.length > 0 && provider.id === 'google') {
+      // Use Google AI's file upload API for better handling
+      const userMessage: Message = {
+        id: `user-${now}`,
+        role: 'user',
+        content: `${messageContent}\n\n--- Files Attached ---\n${uploadedFiles.map(f => f.name).join(', ')}`,
+        timestamp: new Date(now),
+      };
+
+      const loadingMessageId = `loading-${Date.now()}`;
+      const loadingMessage: Message = {
+        id: loadingMessageId,
+        role: 'assistant',
+        content: '',
+        isLoading: true,
+        timestamp: new Date(),
+        model: model.id,
+      };
+      
+      setMessages(prev => [...prev, userMessage, loadingMessage]);
+      setIsLoading(true);
+      setInput('');
+      setUploadedFiles([]);
+
+      try {
+        const responseText = await googleAIService.generateContentWithFiles(
+          messageContent,
+          filesWithUploads.map(f => f.uploadedFile!),
+          model.id
+        );
+
+        setMessages(prev => 
+          prev.map(msg => 
+            msg.id === loadingMessageId 
+              ? { 
+                  ...msg, 
+                  content: responseText, 
+                  isLoading: false 
+                } 
+              : msg
+          )
+        );
+      } catch (error: any) {
+        console.error('Error sending message with files:', error);
+        const errorMessage: Message = {
+          id: loadingMessageId,
+          role: 'assistant',
+          content: `❌ Error: ${error.message}`,
+          isError: true,
+          timestamp: new Date(),
+          model: model.id,
+        };
+        setMessages(prev => [...prev.filter(msg => msg.id !== loadingMessageId), errorMessage]);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+    
+    // Fallback to regular message handling
     messageContent += formatFilesForMessage(uploadedFiles);
     
     const userMessage: Message = {
@@ -541,8 +609,9 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
               onClose={() => setShowFileUpload(false)}
               maxFiles={5}
               maxSizeInMB={10}
-              acceptedTypes={['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c']}
-              enableAnalysis={false}
+              acceptedTypes={['image/*', 'text/*', '.pdf', '.doc', '.docx', '.json', '.csv', '.md', '.js', '.ts', '.py', '.java', '.cpp', '.c', '.mp3', '.mp4', '.wav']}
+              enableAnalysis={true}
+              autoAnalyze={false}
             />
           </div>
         </div>
@@ -565,6 +634,9 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
                     </div>
                   )}
                   <span className="text-gray-300 truncate max-w-32 font-medium">{file.name}</span>
+                  {file.analysis && (
+                    <div className="w-2 h-2 bg-green-400 rounded-full" title="Analyzed" />
+                  )}
                   <button
                     onClick={() => setUploadedFiles(files => files.filter(f => f.id !== file.id))}
                     className="text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-all duration-200"

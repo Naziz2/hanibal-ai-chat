@@ -4,6 +4,7 @@ export interface FileAnalysisResult {
   content: string;
   fileType: string;
   analysis: string;
+  uploadedFile?: { uri: string; mimeType: string; name: string };
 }
 
 export class FileAnalysisService {
@@ -18,57 +19,104 @@ export class FileAnalysisService {
   }
 
   /**
-   * Analyze a file with AI and return detailed analysis
+   * Analyze a file with AI using Google's file upload API
    */
   async analyzeFile(file: File, prompt?: string): Promise<FileAnalysisResult> {
     try {
       console.log('Starting file analysis for:', file.name);
       
-      // For text-based files, read content directly
-      if (this.isTextFile(file)) {
-        const fileContent = await this.readTextFile(file);
-        const analysis = await this.googleAIService.analyzeFileContent(
-          fileContent, 
-          file.name, 
-          prompt
-        );
-        
-        return {
-          content: fileContent,
-          fileType: 'text',
-          analysis
-        };
-      }
+      // Upload file to Google AI first
+      const uploadedFile = await this.googleAIService.uploadFile(file);
+      console.log('File uploaded to Google AI:', uploadedFile);
 
-      // For images, use vision analysis
-      if (this.isImageFile(file)) {
-        const imageData = await this.readFileAsDataURL(file);
-        const analysis = await this.googleAIService.analyzeImageFile(
-          imageData,
-          file.name,
-          prompt
-        );
-        
-        return {
-          content: '', // Binary content not readable as text
-          fileType: 'image',
-          analysis
-        };
-      }
-
-      // For other file types, provide basic analysis
-      const basicAnalysis = await this.analyzeGenericFile(file, prompt);
+      // Generate analysis using the uploaded file
+      const analysis = await this.googleAIService.analyzeUploadedFile(uploadedFile, prompt);
       
+      // For text files, also read content locally for display
+      let content = '';
+      if (this.isTextFile(file)) {
+        content = await this.readTextFile(file);
+      }
+
       return {
-        content: '',
-        fileType: 'binary',
-        analysis: basicAnalysis
+        content,
+        fileType: this.getFileType(file),
+        analysis,
+        uploadedFile
       };
 
     } catch (error) {
       console.error('Error analyzing file:', error);
-      throw new Error(`Failed to analyze file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Fallback to local analysis if upload fails
+      try {
+        console.log('Falling back to local file analysis...');
+        return await this.analyzeFileLocally(file, prompt);
+      } catch (fallbackError) {
+        console.error('Fallback analysis also failed:', fallbackError);
+        throw new Error(`Failed to analyze file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
+  }
+
+  /**
+   * Analyze file locally (fallback method)
+   */
+  private async analyzeFileLocally(file: File, prompt?: string): Promise<FileAnalysisResult> {
+    // For text-based files, read content directly
+    if (this.isTextFile(file)) {
+      const fileContent = await this.readTextFile(file);
+      const analysis = await this.googleAIService.analyzeFileContent(
+        fileContent, 
+        file.name, 
+        prompt
+      );
+      
+      return {
+        content: fileContent,
+        fileType: 'text',
+        analysis
+      };
+    }
+
+    // For images, use vision analysis
+    if (this.isImageFile(file)) {
+      const imageData = await this.readFileAsDataURL(file);
+      const analysis = await this.googleAIService.analyzeImageFile(
+        imageData,
+        file.name,
+        prompt
+      );
+      
+      return {
+        content: '', // Binary content not readable as text
+        fileType: 'image',
+        analysis
+      };
+    }
+
+    // For other file types, provide basic analysis
+    const basicAnalysis = await this.analyzeGenericFile(file, prompt);
+    
+    return {
+      content: '',
+      fileType: 'binary',
+      analysis: basicAnalysis
+    };
+  }
+
+  /**
+   * Get file type category
+   */
+  private getFileType(file: File): string {
+    if (this.isTextFile(file)) return 'text';
+    if (this.isImageFile(file)) return 'image';
+    if (file.type.startsWith('audio/')) return 'audio';
+    if (file.type.startsWith('video/')) return 'video';
+    if (file.type.includes('pdf')) return 'pdf';
+    if (file.type.includes('document') || file.type.includes('word')) return 'document';
+    if (file.type.includes('spreadsheet') || file.type.includes('excel')) return 'spreadsheet';
+    return 'binary';
   }
 
   /**
@@ -136,7 +184,9 @@ export class FileAnalysisService {
       lastModified: new Date(file.lastModified).toISOString()
     };
 
-    const defaultPrompt = `Please analyze this file based on its metadata:
+    const defaultPrompt = `--- AI File Analysis ---
+
+Please analyze this file based on its metadata:
 
 File Information:
 - Name: ${fileInfo.name}
@@ -159,7 +209,9 @@ Please provide:
       return await this.googleAIService.generateText(messages);
     } catch (error) {
       console.error('Error analyzing generic file:', error);
-      return `Basic file analysis for ${file.name}:
+      return `--- AI File Analysis ---
+
+Basic file analysis for ${file.name}:
 - File type: ${file.type || 'Unknown'}
 - Size: ${this.formatFileSize(file.size)}
 - Extension: ${file.name.split('.').pop()?.toUpperCase() || 'None'}
@@ -181,25 +233,26 @@ This appears to be a ${file.type || 'binary'} file. For detailed analysis, pleas
   }
 
   /**
-   * Extract text from various file types
+   * Extract text from various file types using Google AI
    */
   async extractText(file: File): Promise<string> {
-    if (this.isTextFile(file)) {
-      return await this.readTextFile(file);
-    }
+    try {
+      // Upload file and use Google AI for text extraction
+      const uploadedFile = await this.googleAIService.uploadFile(file);
+      
+      const extractionPrompt = "Extract all text content from this file. Return only the extracted text without additional commentary or formatting.";
+      
+      return await this.googleAIService.generateContentWithFiles(extractionPrompt, [uploadedFile]);
+    } catch (error) {
+      console.error('Error extracting text:', error);
+      
+      // Fallback to local text extraction for text files
+      if (this.isTextFile(file)) {
+        return await this.readTextFile(file);
+      }
 
-    if (this.isImageFile(file)) {
-      // Use OCR capabilities
-      const imageData = await this.readFileAsDataURL(file);
-      const analysis = await this.googleAIService.analyzeImageFile(
-        imageData,
-        file.name,
-        "Extract all text content from this image using OCR. Return only the extracted text without additional commentary."
-      );
-      return analysis;
+      throw new Error('Text extraction not supported for this file type');
     }
-
-    throw new Error('Text extraction not supported for this file type');
   }
 
   /**
@@ -216,5 +269,28 @@ This appears to be a ${file.type || 'binary'} file. For detailed analysis, pleas
       isImage: this.isImageFile(file),
       extension: file.name.split('.').pop()?.toLowerCase() || ''
     };
+  }
+
+  /**
+   * Analyze multiple files at once
+   */
+  async analyzeMultipleFiles(files: File[], prompt?: string): Promise<FileAnalysisResult[]> {
+    const results: FileAnalysisResult[] = [];
+    
+    for (const file of files) {
+      try {
+        const result = await this.analyzeFile(file, prompt);
+        results.push(result);
+      } catch (error) {
+        console.error(`Error analyzing file ${file.name}:`, error);
+        results.push({
+          content: '',
+          fileType: 'error',
+          analysis: `Failed to analyze ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        });
+      }
+    }
+    
+    return results;
   }
 }
