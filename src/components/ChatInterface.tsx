@@ -14,6 +14,7 @@ import { ModelSelector } from './ModelSelector';
 import { ProviderSelector } from './ProviderSelector';
 import { WelcomeScreen } from './WelcomeScreen';
 import { FileUpload } from './FileUpload';
+import { Send, Image as ImageIcon, Paperclip, X, Search } from 'lucide-react';
 import { MainWorkspace } from './MainWorkspace';
 import ImageStyleSelector from './ImageStyleSelector';
 
@@ -47,9 +48,7 @@ export const ChatInterface: React.FC = () => {
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const openRouterService = useRef(new OpenRouterService()).current;
   const googleAIService = useRef(new GoogleGenAIService()).current;
   const imageGenerationService = useRef(new ImageGenerationService()).current;
@@ -74,14 +73,6 @@ export const ChatInterface: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
-    }
-  }, [input]);
-
   const handleProviderChange = (newProvider: Provider) => {
     setProvider(newProvider);
     const newModel = newProvider.models[0];
@@ -92,7 +83,7 @@ export const ChatInterface: React.FC = () => {
     setModel(newModel);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
   };
 
@@ -267,12 +258,6 @@ export const ChatInterface: React.FC = () => {
 
   const handleSendMessage = async () => {
     if (!input.trim() && uploadedFiles.length === 0) return;
-    
-    // If web search is enabled and we have a query, perform web search
-    if (isWebSearchEnabled && input.trim()) {
-      await handleWebSearch();
-      return;
-    }
     
     if (provider.id === 'rapidapi') {
       handleGenerateImage();
@@ -533,30 +518,13 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-purple-900/20 text-white overflow-hidden">
+    <div className="flex flex-col h-screen bg-gray-900 text-white overflow-hidden main-container">
       {/* Header */}
-      <div className="relative z-10 flex-shrink-0 border-b border-gray-700/50 bg-gray-900/95 backdrop-blur-sm">
-        <div className="max-w-6xl mx-auto px-4 py-4">
+      <div className="relative z-10 flex-shrink-0 border-b border-gray-700 bg-gray-900/95 backdrop-blur-sm">
+        <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-blue-600 rounded-xl flex items-center justify-center">
-                <span className="text-lg font-bold text-white">H</span>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">
-                  Hanibal AI
-                </h1>
-                <p className="text-xs text-gray-400">Advanced AI Assistant</p>
-              </div>
-            </div>
+            <h1 className="text-xl font-bold">AI Chat</h1>
             <div className="flex items-center space-x-3">
               <ProviderSelector
                 providers={PROVIDERS}
@@ -588,7 +556,7 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
         {messages.length === 0 ? (
           <WelcomeScreen />
         ) : (
-          <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto">
+          <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
             {messages.map((message) => (
               <MessageBubble key={message.id} message={message} onViewCode={handleViewCode} />
             ))}
@@ -599,8 +567,8 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
 
       {/* File Upload Area */}
       {showFileUpload && (
-        <div className="border-t border-gray-700/50 bg-gray-800/95 backdrop-blur-sm">
-          <div className="max-w-6xl mx-auto p-4">
+        <div className="border-t border-gray-700 bg-gray-800/95 backdrop-blur-sm">
+          <div className="max-w-4xl mx-auto p-4">
             <FileUpload
               onFilesUploaded={handleFilesUploaded}
               onClose={() => setShowFileUpload(false)}
@@ -612,16 +580,16 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
         </div>
       )}
 
-      {/* Enhanced Input Area */}
-      <div className="p-4 min-w-full">
+      {/* Input Area */}
+      <div className="p-4 border-t border-gray-700 bg-gray-900/95">
         {/* Show uploaded files */}
         {uploadedFiles.length > 0 && (
-          <div className="mb-3 max-w-6xl mx-auto">
+          <div className="mb-3 max-w-4xl mx-auto">
             <div className="flex flex-wrap gap-2">
               {uploadedFiles.map((file) => (
                 <div
                   key={file.id}
-                  className="flex items-center space-x-2 bg-gray-800/70 px-3 py-2 rounded-full text-sm border border-gray-600/50 backdrop-blur-sm"
+                  className="flex items-center space-x-2 bg-gray-800 px-3 py-2 rounded-full text-sm border border-gray-600"
                 >
                   {file.preview && (
                     <div className="w-6 h-6 rounded-full overflow-hidden">
@@ -633,9 +601,7 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
                     onClick={() => setUploadedFiles(files => files.filter(f => f.id !== file.id))}
                     className="text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-red-500/10 transition-colors"
                   >
-                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                    </svg>
+                    <X size={14} />
                   </button>
                 </div>
               ))}
@@ -643,176 +609,43 @@ ${code.split('\n').map(line => `        ${line}`).join('\n')}
           </div>
         )}
 
-        <div className="relative max-w-6xl mx-auto">
-          <div className="relative flex flex-col border border-white/10 rounded-xl bg-black/50 backdrop-blur-sm">
-            <div className="overflow-y-auto">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={handleInputChange}
-                onKeyPress={handleKeyPress}
-                rows={3}
-                style={{ overflow: 'hidden', outline: 'none' }}
-                className="w-full px-4 py-3 resize-none bg-transparent border-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-white/50 align-top leading-normal min-h-[80px] text-white"
-                placeholder={
-                  provider.id === 'rapidapi' 
-                    ? 'Describe the image you want to generate...' 
-                    : isWebSearchEnabled 
-                      ? 'Search the web...' 
-                      : 'Ask Hanibal anything...'
-                }
-                disabled={isLoading || isSearching}
-              />
-            </div>
-            <div className="h-14">
-              <div className="absolute left-3 right-3 bottom-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowFileUpload(!showFileUpload)}
-                    className={`p-2 transition-colors rounded-lg border border-white/10 hover:border-white/20 ${
-                      showFileUpload || uploadedFiles.length > 0
-                        ? 'text-blue-400 bg-blue-500/10'
-                        : 'text-white/50 hover:text-white'
-                    }`}
-                    aria-label="Attach file"
-                    type="button"
-                  >
-                    <svg
-                      className="w-4 h-4"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      strokeWidth="2"
-                      stroke="currentColor"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      height="16"
-                      width="16"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                    </svg>
-                  </button>
-                  
-                  <button
-                    onClick={() => setIsWebSearchEnabled(!isWebSearchEnabled)}
-                    className={`p-2 transition-colors rounded-lg border border-white/10 hover:border-white/20 ${
-                      isWebSearchEnabled
-                        ? 'text-green-400 bg-green-500/10'
-                        : 'text-white/50 hover:text-white'
-                    }`}
-                    aria-label="Toggle web search"
-                    type="button"
-                  >
-                    <svg
-                      className="w-4 h-4"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      strokeWidth="2"
-                      stroke="currentColor"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      height="16"
-                      width="16"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <circle r="10" cy="12" cx="12" />
-                      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-                      <path d="M2 12h20" />
-                    </svg>
-                  </button>
-                  
-                  <button
-                    className="p-2 text-white/50 hover:text-white transition-colors rounded-lg border border-white/10 hover:border-white/20"
-                    aria-label="Attach Figma link"
-                    type="button"
-                  >
-                    <svg
-                      className="w-4 h-4 text-pink-500"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      strokeWidth="2"
-                      stroke="currentColor"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      height="16"
-                      width="16"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path d="M5 5.5A3.5 3.5 0 0 1 8.5 2H12v7H8.5A3.5 3.5 0 0 1 5 5.5z" />
-                      <path d="M12 2h3.5a3.5 3.5 0 1 1 0 7H12V2z" />
-                      <path d="M12 12.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 1 1-7 0z" />
-                      <path d="M5 19.5A3.5 3.5 0 0 1 8.5 16H12v3.5a3.5 3.5 0 1 1-7 0z" />
-                      <path d="M5 12.5A3.5 3.5 0 0 1 8.5 9H12v7H8.5A3.5 3.5 0 0 1 5 12.5z" />
-                    </svg>
-                  </button>
-                </div>
-                <button
-                  onClick={handleSendMessage}
-                  disabled={isLoading || isSearching || (!input.trim() && uploadedFiles.length === 0)}
-                  className="p-2 transition-colors text-blue-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  aria-label="Send message"
-                  type="button"
-                >
-                  {isLoading || isSearching ? (
-                    <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                  ) : provider.id === 'rapidapi' ? (
-                    <svg
-                      className="w-6 h-6"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      strokeWidth="2"
-                      stroke="currentColor"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      height="24"
-                      width="24"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-                      <circle cx="9" cy="9" r="2" />
-                      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-                    </svg>
-                  ) : isWebSearchEnabled ? (
-                    <svg
-                      className="w-6 h-6"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      strokeWidth="2"
-                      stroke="currentColor"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      height="24"
-                      width="24"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <circle cx="11" cy="11" r="8" />
-                      <path d="m21 21-4.35-4.35" />
-                    </svg>
-                  ) : (
-                    <svg
-                      className="w-6 h-6"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      strokeWidth="2"
-                      stroke="currentColor"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      height="24"
-                      width="24"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <circle r="10" cy="12" cx="12" />
-                      <path d="m16 12-4-4-4 4" />
-                      <path d="M12 16V8" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
+        <div className="flex items-center max-w-4xl mx-auto">
+          <button
+            onClick={() => setShowFileUpload(!showFileUpload)}
+            className={`p-3 rounded-l-lg border border-gray-700 border-r-0 transition-all duration-200 ${
+              showFileUpload || uploadedFiles.length > 0
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+            }`}
+            title="Upload files"
+          >
+            <Paperclip size={20} />
+          </button>
+          <input
+            type="text"
+            value={input}
+            onChange={handleInputChange}
+            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+            placeholder={provider.id === 'rapidapi' ? 'Describe the image you want to generate...' : 'Type a message...'}
+            className="flex-1 p-3 bg-gray-800 border border-gray-700 border-l-0 border-r-0 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
+            disabled={isLoading || isSearching}
+          />
+          <button
+            onClick={handleWebSearch}
+            disabled={isLoading || isSearching || !input.trim()}
+            className="p-3 bg-green-600 text-white border border-gray-700 border-l-0 border-r-0 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors duration-200"
+            title="Search the web"
+          >
+            <Search size={20} />
+          </button>
+          <button
+            onClick={handleSendMessage}
+            disabled={isLoading || isSearching || (!input.trim() && uploadedFiles.length === 0)}
+            className="p-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors duration-200"
+            title="Send message"
+          >
+            {provider.id === 'rapidapi' ? <ImageIcon size={20} /> : <Send size={20} />}
+          </button>
         </div>
       </div>
 
