@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, X, File, Image, FileText, Code, Eye, Brain, Download, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
+import { Upload, X, File as FileIcon, Image, FileText, Code, Eye, Brain, Download, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
 import { FileAnalysisService } from '../services/FileAnalysisService';
 
 interface UploadedFile {
@@ -64,7 +64,7 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
       return <FileText size={16} className="text-green-500" />;
     if (type.includes('javascript') || type.includes('typescript') || name.endsWith('.py') || name.endsWith('.java')) 
       return <Code size={16} className="text-purple-500" />;
-    return <File size={16} className="text-gray-500" />;
+    return <FileIcon size={16} className="text-gray-500" />;
   };
 
   const formatFileSize = (bytes: number) => {
