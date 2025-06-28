@@ -39,6 +39,7 @@ export const EnhancedFileUpload: React.FC<EnhancedFileUploadProps> = ({
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileAnalysisService = useRef<FileAnalysisService | null>(null);
@@ -150,17 +151,6 @@ ${result.analysis}`;
         } : f
       ));
 
-      // Trigger the parent callback with updated files
-      const updatedFiles = uploadedFiles.map(f => 
-        f.id === fileId ? { 
-          ...f, 
-          analysisStatus: 'completed' as const,
-          analysis: formattedAnalysis,
-          uploadedFile: result.uploadedFile
-        } : f
-      );
-      onFilesUploaded(updatedFiles);
-
     } catch (error) {
       console.error('File analysis failed:', error);
       const errorAnalysis = `--- AI File Analysis ---
@@ -192,6 +182,42 @@ ${result.analysis}`;
     }
   };
 
+  const analyzeAllFiles = async () => {
+    if (!enableAnalysis || uploadedFiles.length === 0) return;
+
+    setIsAnalyzing(true);
+    
+    // Create File objects from uploaded files for analysis
+    const filesToAnalyze = uploadedFiles.filter(f => !f.analysis);
+    
+    for (const uploadedFile of filesToAnalyze) {
+      try {
+        // Convert back to File object for analysis
+        let fileBlob: Blob;
+        
+        if (uploadedFile.content.startsWith('data:')) {
+          // Handle data URLs (images, binary files)
+          const response = await fetch(uploadedFile.content);
+          fileBlob = await response.blob();
+        } else {
+          // Handle text content
+          fileBlob = new Blob([uploadedFile.content], { type: uploadedFile.type });
+        }
+        
+        const file = new File([fileBlob], uploadedFile.name, { 
+          type: uploadedFile.type,
+          lastModified: uploadedFile.metadata?.lastModified || Date.now()
+        });
+        
+        await analyzeFile(file, uploadedFile.id);
+      } catch (error) {
+        console.error(`Failed to analyze file ${uploadedFile.name}:`, error);
+      }
+    }
+    
+    setIsAnalyzing(false);
+  };
+
   const processFiles = async (files: FileList) => {
     if (uploadedFiles.length + files.length > maxFiles) {
       alert(`Maximum ${maxFiles} files allowed`);
@@ -220,7 +246,7 @@ ${result.analysis}`;
           size: file.size,
           content,
           preview: file.type.startsWith('image/') ? content : undefined,
-          analysisStatus: enableAnalysis ? 'pending' : undefined,
+          analysisStatus: undefined, // Don't set analysis status during upload
           metadata: {
             lastModified: file.lastModified,
             extension: file.name.split('.').pop()?.toLowerCase() || ''
@@ -228,17 +254,10 @@ ${result.analysis}`;
         };
 
         newFiles.push(uploadedFile);
-
-        // Start analysis automatically if enabled
-        if (enableAnalysis && autoAnalyze) {
-          // Small delay to ensure the file is added to state first
-          setTimeout(() => analyzeFile(file, fileId), 100);
-        }
       }
 
       const updatedFiles = [...uploadedFiles, ...newFiles];
       setUploadedFiles(updatedFiles);
-      onFilesUploaded(updatedFiles);
       
     } catch (error) {
       console.error('Error processing files:', error);
@@ -281,7 +300,6 @@ ${result.analysis}`;
   const removeFile = (fileId: string) => {
     const updatedFiles = uploadedFiles.filter(f => f.id !== fileId);
     setUploadedFiles(updatedFiles);
-    onFilesUploaded(updatedFiles);
     
     // Remove analysis result
     setAnalysisResults(prev => {
@@ -293,8 +311,27 @@ ${result.analysis}`;
 
   const clearAllFiles = () => {
     setUploadedFiles([]);
-    onFilesUploaded([]);
     setAnalysisResults({});
+  };
+
+  const submitFiles = async () => {
+    // Analyze files if analysis is enabled
+    if (enableAnalysis) {
+      await analyzeAllFiles();
+    }
+    
+    // Submit files with analysis results
+    const finalFiles = uploadedFiles.map(file => ({
+      ...file,
+      analysis: analysisResults[file.id] || file.analysis
+    }));
+    
+    onFilesUploaded(finalFiles);
+    
+    // Auto-close after submission
+    setTimeout(() => {
+      onClose?.();
+    }, 500);
   };
 
   const downloadAnalysis = (fileName: string, analysis: string) => {
@@ -363,7 +400,7 @@ ${result.analysis}`;
             ) : (
               <div className="space-y-3">
                 <div className="text-xl font-medium text-gray-200">
-                  {isDragOver ? '🎯 Drop files here' : '📁 Upload & Analyze Files'}
+                  {isDragOver ? '🎯 Drop files here' : '📁 Upload Files'}
                 </div>
                 <div className="text-sm text-gray-400">
                   <span className="font-medium text-blue-400">Click to browse</span> or drag and drop
@@ -373,7 +410,7 @@ ${result.analysis}`;
                   {enableAnalysis && (
                     <div className="flex items-center justify-center gap-1 text-purple-400 mt-2">
                       <Sparkles size={12} />
-                      <span>AI analysis powered by Google Gemini</span>
+                      <span>AI analysis available on submission</span>
                       <Sparkles size={12} />
                     </div>
                   )}
@@ -392,7 +429,7 @@ ${result.analysis}`;
               📁 Uploaded Files ({uploadedFiles.length})
               {enableAnalysis && (
                 <span className="text-xs text-purple-400 bg-purple-500/10 px-2 py-1 rounded-full">
-                  AI Analysis Ready
+                  Ready for Analysis
                 </span>
               )}
             </h4>
@@ -442,66 +479,46 @@ ${result.analysis}`;
                   </div>
                   
                   <div className="flex items-center space-x-2">
-                    {enableAnalysis && (
-                      <>
-                        {file.analysisStatus === 'analyzing' ? (
-                          <div className="flex items-center space-x-1 text-purple-400">
-                            <Brain size={14} className="animate-pulse" />
-                            <span className="text-xs">Analyzing...</span>
-                          </div>
-                        ) : file.analysisStatus === 'completed' && analysisResults[file.id] ? (
-                          <div className="flex items-center space-x-1">
-                            <button
-                              onClick={() => {
-                                const analysis = analysisResults[file.id];
-                                if (analysis) {
-                                  const modal = document.createElement('div');
-                                  modal.className = 'fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 analysis-modal';
-                                  modal.innerHTML = `
-                                    <div class="bg-gray-800 rounded-xl max-w-4xl max-h-[80vh] overflow-auto p-6 border border-gray-700">
-                                      <div class="flex justify-between items-center mb-4">
-                                        <h3 class="text-lg font-semibold text-white flex items-center gap-2">
-                                          <span class="text-purple-400">🧠</span>
-                                          AI Analysis: ${file.name}
-                                        </h3>
-                                        <button class="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-700" onclick="this.closest('.fixed').remove()">
-                                          <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
-                                            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                                          </svg>
-                                        </button>
-                                      </div>
-                                      <div class="text-gray-300 whitespace-pre-wrap font-mono text-sm leading-relaxed">${analysis}</div>
-                                    </div>
-                                  `;
-                                  document.body.appendChild(modal);
-                                }
-                              }}
-                              className="p-2 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-all duration-200 btn-hover-scale"
-                              title="View analysis"
-                            >
-                              <Eye size={14} />
-                            </button>
-                            <button
-                              onClick={() => downloadAnalysis(file.name, analysisResults[file.id])}
-                              className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-all duration-200 btn-hover-scale"
-                              title="Download analysis"
-                            >
-                              <Download size={14} />
-                            </button>
-                          </div>
-                        ) : file.analysisStatus !== 'analyzing' ? (
-                          <button
-                            onClick={() => {
-                              const fileObj = new File([file.content], file.name, { type: file.type });
-                              analyzeFile(fileObj, file.id);
-                            }}
-                            className="p-2 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition-all duration-200 btn-hover-scale"
-                            title="Analyze file"
-                          >
-                            <Brain size={14} />
-                          </button>
-                        ) : null}
-                      </>
+                    {file.analysisStatus === 'completed' && analysisResults[file.id] && (
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => {
+                            const analysis = analysisResults[file.id];
+                            if (analysis) {
+                              const modal = document.createElement('div');
+                              modal.className = 'fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 analysis-modal';
+                              modal.innerHTML = `
+                                <div class="bg-gray-800 rounded-xl max-w-4xl max-h-[80vh] overflow-auto p-6 border border-gray-700">
+                                  <div class="flex justify-between items-center mb-4">
+                                    <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+                                      <span class="text-purple-400">🧠</span>
+                                      AI Analysis: ${file.name}
+                                    </h3>
+                                    <button class="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-700" onclick="this.closest('.fixed').remove()">
+                                      <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                  <div class="text-gray-300 whitespace-pre-wrap font-mono text-sm leading-relaxed">${analysis}</div>
+                                </div>
+                              `;
+                              document.body.appendChild(modal);
+                            }
+                          }}
+                          className="p-2 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-all duration-200 btn-hover-scale"
+                          title="View analysis"
+                        >
+                          <Eye size={14} />
+                        </button>
+                        <button
+                          onClick={() => downloadAnalysis(file.name, analysisResults[file.id])}
+                          className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-all duration-200 btn-hover-scale"
+                          title="Download analysis"
+                        >
+                          <Download size={14} />
+                        </button>
+                      </div>
                     )}
                     
                     <button
@@ -528,6 +545,34 @@ ${result.analysis}`;
                 )}
               </div>
             ))}
+          </div>
+
+          {/* Submit Button */}
+          <div className="mt-4 flex justify-between items-center">
+            <div className="text-xs text-gray-500">
+              {enableAnalysis ? 'Files will be analyzed when submitted' : 'Ready to submit files'}
+            </div>
+            <button
+              onClick={submitFiles}
+              disabled={uploadedFiles.length === 0 || isAnalyzing}
+              className={`px-6 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 ${
+                uploadedFiles.length === 0 || isAnalyzing
+                  ? 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:scale-105'
+              }`}
+            >
+              {isAnalyzing ? (
+                <>
+                  <Brain size={16} className="animate-pulse" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} />
+                  {enableAnalysis ? 'Analyze & Submit' : 'Submit Files'}
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}
